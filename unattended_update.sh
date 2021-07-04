@@ -1,5 +1,4 @@
 #!/bin/sh
-export PATH=/home/toast/.cargo/env:$PATH
 config=/opt/etc/unattended_update.conf
 
 if [ "$(id -u)" != "0" ]; then exec /usr/bin/sudo /bin/sh "$0"; fi
@@ -176,7 +175,7 @@ detect_updater () {
   if [ $(which opkg | wc -l) -eq 1 ]; then opkg update; opkg_upgrader; fi
   if [ $(which apt | wc -l) -eq 1 ]; then apt-get update; apt_upgrader; fi
   if [ $(which pacman | wc -l) -eq 1 ]; then pacman_upgrader; fi
-  #if [ $(which pip | wc -l) -eq 1 ]; then python_upgrader; fi
+  if [ $(which pip | wc -l) -eq 1 ]; then python_upgrader; fi
   if [ $(which npm | wc -l) -eq 1 ]; then nodejs_upgrader; fi
   if [ $(su - $myusername -c "which rustup" | wc -l) -eq 1 ]; then rust_upgrader; fi
 }
