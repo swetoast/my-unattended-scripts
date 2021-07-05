@@ -30,9 +30,9 @@ check_drives () {
 
 mkdir -p $LOGS/{blocks/smart}
 
-for DEVICE in $( ls /dev/sd[a-z] | cut -d '/' -f3); do /usr/local/bin/bbf scan /dev/"$DEVICE" -o $LOGS/blocks/$DEVICE.log;chown $myusername:users $LOGS/blocks/$DEVICE.log; done
-for DEVICE in $( ls /dev/mmcblk0p[0-9] | cut -d '/' -f3); do /usr/local/bin/bbf scan /dev/"$DEVICE" -o $LOGS/blocks/$DEVICE.log;chown $myusername:users $LOGS/blocks/$DEVICE.log; done
-for DEVICE in $( ls /dev/sd[a-z] | cut -d '/' -f3); do smartctl -H /dev/$DEVICE >> $LOGS/smart/$DEVICE.log; smartctl --test=long /dev/$DEVICE;chown $myusername:users $LOGS/smart/$DEVICE.log; done
+for DEVICE in $( ls /dev/sd[a-z] | cut -d '/' -f3); do /usr/local/bin/bbf scan /dev/"$DEVICE" -o $LOGS/blocks/$DEVICE.log;chown $USERNAME:users $LOGS/blocks/$DEVICE.log; done
+for DEVICE in $( ls /dev/mmcblk0p[0-9] | cut -d '/' -f3); do /usr/local/bin/bbf scan /dev/"$DEVICE" -o $LOGS/blocks/$DEVICE.log;chown $USERNAME:users $LOGS/blocks/$DEVICE.log; done
+for DEVICE in $( ls /dev/sd[a-z] | cut -d '/' -f3); do smartctl -H /dev/$DEVICE >> $LOGS/smart/$DEVICE.log; smartctl --test=long /dev/$DEVICE;chown $USERNAME:users $LOGS/smart/$DEVICE.log; done
 
 if [ $(df -T | grep btrfs | awk '{ print $7 }' | wc -l) -ge 1 ]; then
 for BTRFS in $(df -T | grep btrfs | awk '{ print $7 }'); do btrfs scrub start $BTRFS; done;fi
