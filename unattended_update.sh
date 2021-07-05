@@ -147,10 +147,10 @@ opkg_upgrader () {
   fi }
 
 rust_upgrader () {
-su - $USERNAME -c "rustup update"
-su - $USERNAME -c "rustup self update"
-su - $USERNAME -c "cargo install-update -a"
-su - $USERNAME -c "cargo-cache -ae"
+source /home/$USERNAME/.cargo/env
+if [ $(su - $USERNAME -c "which rustup" | wc -l) -eq 1 ]; then su - $USERNAME -c "rustup update";fi
+if [ $(su - $USERNAME -c "which cargo" | wc -l) -eq 1 ]; then su - $USERNAME -c "cargo install-update -a";fi
+if [ $(su - $USERNAME -c "which cargo-cache" | wc -l) -eq 1 ]; then su - $USERNAME -c "cargo-cache -ae";fi
 }
 
 python_upgrader () {
