@@ -25,6 +25,7 @@ message="$(for SUMMARY in $(find $LOGS -maxdepth 1 -type f -size +1k); do cat $S
 title="$(cat /etc/hostname) reported bad sectors"
 curl -u "$pushbullet_token": https://api.pushbullet.com/v2/pushes -d type=note -d title="$title" -d body="$message"
 }
+
 run_bbf () {
 for DEVICE in $( ls /dev/sd[a-z] | cut -d '/' -f3); do /usr/local/bin/bbf scan /dev/"$DEVICE" -o $LOGS/blocks/$DEVICE.log;chown $USERNAME:users $LOGS/blocks/$DEVICE.log; done
 for DEVICE in $( ls /dev/mmcblk0p[0-9] | cut -d '/' -f3); do /usr/local/bin/bbf scan /dev/"$DEVICE" -o $LOGS/blocks/$DEVICE.log;chown $USERNAME:users $LOGS/blocks/$DEVICE.log; done
@@ -36,7 +37,6 @@ for DEVICE in $( ls /dev/mmcblk0p[0-9] | cut -d '/' -f3); do badblocks -sv /dev/
 }
 
 check_drives () {
-
 mkdir -p $LOGS/{blocks/smart}
 
 if [ -z "$(which bbf)" ]
