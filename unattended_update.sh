@@ -147,10 +147,10 @@ opkg_upgrader () {
   fi }
 
 rust_upgrader () {
-su - $myusername -c "rustup update"
-su - $myusername -c "rustup self update"
-su - $myusername -c "cargo install-update -a"
-su - $myusername -c "cargo-cache -ae"
+su - $USERNAME -c "rustup update"
+su - $USERNAME -c "rustup self update"
+su - $USERNAME -c "cargo install-update -a"
+su - $USERNAME -c "cargo-cache -ae"
 }
 
 python_upgrader () {
@@ -177,7 +177,7 @@ detect_updater () {
   if [ $(which pacman | wc -l) -eq 1 ]; then pacman_upgrader; fi
   if [ $(which pip | wc -l) -eq 1 ]; then python_upgrader; fi
   if [ $(which npm | wc -l) -eq 1 ]; then nodejs_upgrader; fi
-  if [ $(su - $myusername -c "which rustup" | wc -l) -eq 1 ]; then rust_upgrader; fi
+  if [ $(su - $USERNAME -c "which rustup" | wc -l) -eq 1 ]; then rust_upgrader; fi
 }
 
 check_online
