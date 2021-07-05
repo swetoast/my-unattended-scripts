@@ -15,7 +15,9 @@ pushover_username=""                                    # Pushover User ID (the 
 
 #General settings
 set_debug="disabled"                                    # Set debug option to show exit codes if enabled. Values: enabled/disabled (Default Value: disabled)
-myusername="pi"
 
+#Settings for script such as where to store logs and usernames.
 HOSTNAME="My Machine"
+USERNAME="pi"
+LOGS=/home/pi/logs/
 ```
