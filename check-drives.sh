@@ -60,6 +60,7 @@ for DEVICE in $( ls /dev/sd[a-z] | cut -d '/' -f3); do smartctl -H /dev/"$DEVICE
 for DEVICE in $( ls /dev/sd[a-z] | cut -d '/' -f3); do smartctl -t long /dev/"$DEVICE"; done
 fi
 }
+
 check_drives () {
 mkdir -p $LOGS/{blocks/smart}
 
@@ -69,6 +70,7 @@ if [ -z "$(which bbf)" ]
             then no valid tool found please install bbf or badblocks
             else run_badblocks; fi
    else run_bbf; fi
+run_smartctl
 }
 
 check_filesystem () {
@@ -90,6 +92,7 @@ startup_message
 clean_system_logs
 check_drives
 check_filesystem
+check_smart
 check_logs
 
 if [ "$set_debug" = "enabled" ]; then setting_debug_disable; fi
