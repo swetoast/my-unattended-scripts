@@ -1,5 +1,5 @@
 #!/bin/sh
-# Rev 5
+# Rev 6
 if [ "$(id -u)" != "0" ]; then exec sudo /bash "$0"; fi
 CONFIG=/opt/etc/unattended_update.conf
 
