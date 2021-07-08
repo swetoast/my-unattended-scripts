@@ -22,7 +22,7 @@ curl -u "$pushbullet_token": https://api.pushbullet.com/v2/pushes -d type=note -
 
 notification_message () {
 message="$(for SUMMARY in $(find $LOGS -maxdepth 1 -type f -size +1k); do cat $SUMMARY; done)"
-title="$(cat /etc/hostname) reported bad sectors"
+title="Here is a summary for HDD Scans from $HOSTNAME"
 curl -u "$pushbullet_token": https://api.pushbullet.com/v2/pushes -d type=note -d title="$title" -d body="$message"
 }
 
@@ -70,7 +70,7 @@ if [ -z "$(which bbf)" ]
             then no valid tool found please install bbf or badblocks
             else run_badblocks; fi
    else run_bbf; fi
-run_smartctl
+        run_smartctl
 }
 
 check_filesystem () {
