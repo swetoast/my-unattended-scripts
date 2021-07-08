@@ -55,9 +55,10 @@ fi
 }
 
 run_smartctl () {
+if [ -z "$(which smartctl)" ]; then
 if [ $(find /dev/ | grep -E sd[a-z]$ | wc -l) -gt 1 ]; then
 for DEVICE in $( ls /dev/sd[a-z] | cut -d '/' -f3); do smartctl -H /dev/"$DEVICE" | grep -E "PASSED|FAILED" > $LOGS/smart/$DEVICE.log;chown $USERNAME:users $LOGS/smart/$DEVICE.log ; done
-for DEVICE in $( ls /dev/sd[a-z] | cut -d '/' -f3); do smartctl -t long /dev/"$DEVICE"; done
+for DEVICE in $( ls /dev/sd[a-z] | cut -d '/' -f3); do smartctl -t long /dev/"$DEVICE"; done; fi
 fi
 }
 
@@ -92,7 +93,6 @@ startup_message
 clean_system_logs
 check_drives
 check_filesystem
-check_smart
 check_logs
 
 if [ "$set_debug" = "enabled" ]; then setting_debug_disable; fi
