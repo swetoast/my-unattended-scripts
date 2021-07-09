@@ -65,12 +65,12 @@ fi
 check_drives () {
 mkdir -p $LOGS/{blocks/smart}
 
-if [ -z "$(which bbf)" ]
-   then 
-        if [ -z "$(which badblocks)" ]; 
-            then no valid tool found please install bbf or badblocks
-            else run_badblocks; fi
-   else run_bbf; fi
+if [ "$(which bbf)" ]
+   then run_bbf        
+   else if [ "$(which badblocks)" ]; 
+            then run_badblocks
+            else no valid tool found please install bbf or badblocks
+        fi
         run_smartctl
 }
 
