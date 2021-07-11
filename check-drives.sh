@@ -49,22 +49,22 @@ run_smartctl
 }
 
 run_bbf () {
-if [ $(find /dev/ | grep -E sd[a-z]$ | wc -l) -gt 1 ]; then
+if [ $(find /dev/ | grep -E sd[a-z]$ | wc -l) -ge 1 ]; then
    for DEVICE in $( ls /dev/sd[a-z] | cut -d '/' -f3); do /usr/local/bin/bbf scan /dev/"$DEVICE" -o "$LOGS"/blocks/"$DEVICE".log;chown "$USERNAME":users "$LOGS"/blocks/"$DEVICE".log; done
 fi
 
-if [ $(find /dev/ | grep -E nvme[0-9]$ | wc -l) -gt 1 ]; then
+if [ $(find /dev/ | grep -E nvme[0-9]$ | wc -l) -ge 1 ]; then
    for DEVICE in $( ls /dev/nvme[0-9] | cut -d '/' -f3); do /usr/local/bin/bbf scan /dev/"$DEVICE" -o "$LOGS"/blocks/"$DEVICE".log;chown "$USERNAME":users "$LOGS"/blocks/"$DEVICE".log; done
 fi
 
-if [ $(find /dev/ | grep -E mmcblk[0-9]$ | wc -l) -gt 1 ]; then
+if [ $(find /dev/ | grep -E mmcblk[0-9]$ | wc -l) -ge 1 ]; then
    for DEVICE in $( ls /dev/mmcblk[0-9] | cut -d '/' -f3); do /usr/local/bin/bbf scan /dev/"$DEVICE" -o "$LOGS"/blocks/"$DEVICE".log;chown "$USERNAME":users "$LOGS"/blocks/"$DEVICE".log; done
 fi
 }
 
 run_smartctl () {
 if [ "$(which smartctl)" ] 
-   then if [ $(find /dev/ | grep -E sd[a-z]$ | wc -l) -gt 1 ]; then
+   then if [ $(find /dev/ | grep -E sd[a-z]$ | wc -l) -ge 1 ]; then
             for DEVICE in $( ls /dev/sd[a-z] | cut -d '/' -f3); do smartctl -H /dev/"$DEVICE" | grep -E "PASSED|FAILED" > "$LOGS"/smart/"$DEVICE".log;chown "$USERNAME":users "$LOGS"/smart/"$DEVICE".log ; done
             for DEVICE in $( ls /dev/sd[a-z] | cut -d '/' -f3); do smartctl -t long /dev/"$DEVICE"; done
    fi
