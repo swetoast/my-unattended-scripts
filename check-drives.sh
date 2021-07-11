@@ -1,6 +1,6 @@
-#!/bin/sh
+#!/bin/bash
 # Rev 6
-if [ "$(id -u)" != "0" ]; then exec sudo /bash "$0"; fi
+if [ "$(id -u)" != "0" ]; then exec sudo /bin/bash "$0"; fi
 CONFIG=/opt/etc/unattended_update.conf
 
 if [ -f "$CONFIG" ]
