@@ -26,6 +26,28 @@ title="Here is a summary for HDD Scans from $HOSTNAME"
 curl -u "$pushbullet_token": https://api.pushbullet.com/v2/pushes -d type=note -d title="$title" -d body="$message"
 }
 
+check_filesystem () {
+if [ $(df -T | grep btrfs | awk '{ print $7 }' | wc -l) -ge 1 ]; then
+for BTRFS in $(df -T | grep btrfs | awk '{ print $7 }'); do btrfs scrub start "$BTRFS"; done
+fi
+
+if [ $(df -T | grep ext4 | awk '{ print $7 }' | wc -l) -ge 1 ]; then fstrim -Av; fi
+}
+
+check_logs () {
+for SUMMARY in $(find "$LOGS" -maxdepth 1 -type f -size +1k); do notification_message; done
+}
+
+clean_system_logs () {
+journalctl --rotate --vacuum-size=1M
+}
+
+check_drives () {
+mkdir -p "$LOGS"/{blocks/smart}
+run_bbf        
+run_smartctl
+}
+
 run_bbf () {
 if [ $(find /dev/ | grep -E sd[a-z]$ | wc -l) -gt 1 ]; then
    for DEVICE in $( ls /dev/sd[a-z] | cut -d '/' -f3); do /usr/local/bin/bbf scan /dev/"$DEVICE" -o "$LOGS"/blocks/"$DEVICE".log;chown "$USERNAME":users "$LOGS"/blocks/"$DEVICE".log; done
@@ -47,28 +69,6 @@ if [ "$(which smartctl)" ]
             for DEVICE in $( ls /dev/sd[a-z] | cut -d '/' -f3); do smartctl -t long /dev/"$DEVICE"; done
    fi
 fi
-}
-
-check_drives () {
-mkdir -p "$LOGS"/{blocks/smart}
-run_bbf        
-run_smartctl
-}
-
-check_filesystem () {
-if [ $(df -T | grep btrfs | awk '{ print $7 }' | wc -l) -ge 1 ]; then
-for BTRFS in $(df -T | grep btrfs | awk '{ print $7 }'); do btrfs scrub start "$BTRFS"; done
-fi
-
-if [ $(df -T | grep ext4 | awk '{ print $7 }' | wc -l) -ge 1 ]; then fstrim -Av; fi
-}
-
-check_logs () {
-for SUMMARY in $(find "$LOGS" -maxdepth 1 -type f -size +1k); do notification_message; done
-}
-
-clean_system_logs () {
-journalctl --rotate --vacuum-size=1M
 }
 
 startup_message
