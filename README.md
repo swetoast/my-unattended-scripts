@@ -19,5 +19,5 @@ set_debug="disabled"                                    # Set debug option to sh
 #Settings for script such as where to store logs and usernames.
 HOSTNAME="My Machine"
 USERNAME="pi"
-LOGS=/home/pi/logs/
+LOGS=/home/pi/logs
 ```
