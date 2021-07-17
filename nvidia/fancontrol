@@ -1,0 +1,46 @@
+#!/bin/bash
+# Revision 3
+
+function_set_fan_speed () {
+case $(gpustat | grep -oE [0-9]{2}\'C | grep -oE [0-9]{2}) in
+  3[0123456789]) DISPLAY=:0 XAUTHORITY=/var/run/lightdm/root/:0 /usr/bin/nvidia-settings -a "[gpu:0]/GPUFanControlState=1" -a "[fan:0]/GPUTargetFanSpeed=15";;
+  4[0123456789]) DISPLAY=:0 XAUTHORITY=/var/run/lightdm/root/:0 /usr/bin/nvidia-settings -a "[gpu:0]/GPUFanControlState=1" -a "[fan:0]/GPUTargetFanSpeed=30";;
+  5[0123456789]) DISPLAY=:0 XAUTHORITY=/var/run/lightdm/root/:0 /usr/bin/nvidia-settings -a "[gpu:0]/GPUFanControlState=1" -a "[fan:0]/GPUTargetFanSpeed=50";;
+  6[0123456789]) DISPLAY=:0 XAUTHORITY=/var/run/lightdm/root/:0 /usr/bin/nvidia-settings -a "[gpu:0]/GPUFanControlState=1" -a "[fan:0]/GPUTargetFanSpeed=60";;
+  7[0123456789]) DISPLAY=:0 XAUTHORITY=/var/run/lightdm/root/:0 /usr/bin/nvidia-settings -a "[gpu:0]/GPUFanControlState=1" -a "[fan:0]/GPUTargetFanSpeed=80";;
+  8[0123456789]) DISPLAY=:0 XAUTHORITY=/var/run/lightdm/root/:0 /usr/bin/nvidia-settings -a "[gpu:0]/GPUFanControlState=1" -a "[fan:0]/GPUTargetFanSpeed=100";;
+esac
+}
+
+get_started () {
+nvidia-xconfig --allow-empty-initial-configuration --enable-all-gpus --cool-bits=4 --separate-x-screens
+/usr/bin/nvidia-smi -pm ENABLED
+/usr/bin/nvidia-smi -pl 110
+X :0 &
+sleep 5
+export DISPLAY=:0
+}
+
+function_store_last_value () {
+export GPUTEMP=$(gpustat | grep -oE [0-9]{2}\'C | grep -oE [0-9]{2})
+}
+
+control_fan_speed () {
+while :
+do
+  if [ "$a" -eq "$b" ]
+  then    function_store_last_value
+          sleep 60
+  else    function_set_fan_speed
+          function_store_last_value
+          echo "  Temp: $(gpustat | grep -oE [0-9]{2}\'C"
+          sleep 60
+  fi
+done
+}
+
+option="${1}"
+case ${option} in
+  -init) get_started ;;
+      *) control_fan_speed ;;
+esac
