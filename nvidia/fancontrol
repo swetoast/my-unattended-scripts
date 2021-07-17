@@ -29,7 +29,7 @@ export DISPLAY=:0
 function_control_fan_speed () {
 while :
 do
-  if [ "$a" -eq "$b" ]
+  if [ "$(gpustat | grep -oE [0-9]{2}\'C | grep -oE [0-9]{2})" -eq "$GPUTEMP" ]
   then    function_store_last_value
           sleep 60
   else    function_set_fan_speed
