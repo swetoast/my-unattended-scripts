@@ -1,0 +1,10 @@
+[Unit]
+Description=Fan Control for Nvidia Card
+
+[Service]
+type=simple
+ExecStartPre=/usr/bin/fancontrol -init
+ExecStart=/usr/bin/fancontrol
+
+[Install]
+WantedBy=multi-user.target
