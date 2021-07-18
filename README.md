@@ -6,12 +6,9 @@ Here is an example config for the scripts above, store at `/opt/etc/unattended_u
 ```config
 #Enable or disable features here
 use_pushbullet="disable"                                # enabled / disabled (default: disabled)
-use_pushover="disabled"                                 # enabled / disabled (default: disabled)
 
 #Pushbullet/Pushover settings
 pushbullet_token=""                                     # Your access token here (https://docs.pushbullet.com/)
-pushover_token=""                                       # Your access token here (https://pushover.net/api)
-pushover_username=""                                    # Pushover User ID (the user/group key (not e-mail address often referred to as USER_KEY)
 
 #General settings
 set_debug="disabled"                                    # Set debug option to show exit codes if enabled. Values: enabled/disabled (Default Value: disabled)
