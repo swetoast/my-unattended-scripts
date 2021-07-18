@@ -1,5 +1,8 @@
 #!/bin/bash
 # Revision 4
+# A Fan Controling script for my nvidia Card in a server
+# This script needs nvidia-settings installed in headless mode
+
 if [ "$(id -u)" != "0" ]; then exec sudo /bin/bash "$0"; fi
 CONFIG=/opt/etc/unattended_update.conf
 
