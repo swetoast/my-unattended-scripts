@@ -56,7 +56,6 @@ while :
 do
   if [ "$(gpustat | grep -oE [0-9]{2}.C | grep -oE [0-9]{2})" -eq "$GPUTEMP" ]
   then    function_store_last_value
-          echo "  Fan speed unchanged, temperature remained the same: $(gpustat | grep -oE [0-9]{2}.C)"
           sleep 60
   else    function_set_fan_speed
           function_store_last_value
