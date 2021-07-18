@@ -1,8 +1,10 @@
 #!/bin/bash
 # Revision 5
 # A Fan Controling script for my nvidia Card in a server
-# This script needs nvidia-settings installed in headless mode
 # Store this file at /usr/bin/fancontrol and then use the service to run it with systemd
+# Dependacies: 
+# gpustat https://github.com/wookayin/gpustat
+# nvidia-settings, this must be installed in headless mode (see readme.md for more info)
 
 if [ "$(id -u)" != "0" ]; then exec sudo /bin/bash "$0"; fi
 CONFIG=/opt/etc/unattended_update.conf
