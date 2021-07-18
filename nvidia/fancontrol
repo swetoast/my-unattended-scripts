@@ -47,6 +47,7 @@ nvidia-xconfig --allow-empty-initial-configuration --enable-all-gpus --cool-bits
 X :0 &
 sleep 5
 export DISPLAY=:0
+function_store_last_value
 }
 
 function_control_fan_speed () {
