@@ -1,5 +1,5 @@
 #!/bin/bash
-# Revision 3
+# Revision 4
 if [ "$(id -u)" != "0" ]; then exec sudo /bin/bash "$0"; fi
 CONFIG=/opt/etc/unattended_update.conf
 
@@ -17,13 +17,13 @@ setting_debug_disable () { set +x; }
 if [ "$set_debug" = "enabled" ]; then setting_debug_enabled; fi
 
 function_notification_message () {
-message="Heat Warning on Nvidia Card$()"
-title="Current Temp: $(gpustat | grep -oE [0-9]{2}\'C)"
+message="Heat Warning on Nvidia Card"
+title="Current Temp: $(gpustat | grep -oE [0-9]{2}.C)"
 curl -u "$pushbullet_token": https://api.pushbullet.com/v2/pushes -d type=note -d title="$title" -d body="$message"
 }
 
 function_set_fan_speed () {
-case $(gpustat | grep -oE [0-9]{2}\'C | grep -oE [0-9]{2}) in
+case $(gpustat | grep -oE [0-9]{2}.C | grep -oE [0-9]{2}) in
   3[0123456789]) DISPLAY=:0 XAUTHORITY=/var/run/lightdm/root/:0 /usr/bin/nvidia-settings -a "[gpu:0]/GPUFanControlState=1" -a "[fan:0]/GPUTargetFanSpeed=15";;
   4[0123456789]) DISPLAY=:0 XAUTHORITY=/var/run/lightdm/root/:0 /usr/bin/nvidia-settings -a "[gpu:0]/GPUFanControlState=1" -a "[fan:0]/GPUTargetFanSpeed=30";;
   5[0123456789]) DISPLAY=:0 XAUTHORITY=/var/run/lightdm/root/:0 /usr/bin/nvidia-settings -a "[gpu:0]/GPUFanControlState=1" -a "[fan:0]/GPUTargetFanSpeed=50";;
@@ -34,7 +34,7 @@ esac
 }
 
 function_store_last_value () {
-export GPUTEMP=$(gpustat | grep -oE [0-9]{2}\'C | grep -oE [0-9]{2})
+export GPUTEMP=$(gpustat | grep -oE [0-9]{2}.C | grep -oE [0-9]{2})
 }
 
 function_initialize () {
@@ -46,16 +46,15 @@ sleep 5
 export DISPLAY=:0
 }
 
-
 function_control_fan_speed () {
 while :
 do
-  if [ "$(gpustat | grep -oE [0-9]{2}\'C | grep -oE [0-9]{2})" -eq "$GPUTEMP" ]
+  if [ "$(gpustat | grep -oE [0-9]{2}.C | grep -oE [0-9]{2})" -eq "$GPUTEMP" ]
   then    function_store_last_value
           sleep 60
   else    function_set_fan_speed
           function_store_last_value
-          echo "  Temp: $(gpustat | grep -oE [0-9]{2}\'C"
+          echo "  Temp: $(gpustat | grep -oE [0-9]{2}.C)"
           sleep 60
   fi
 done
