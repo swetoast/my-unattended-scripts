@@ -25,14 +25,6 @@ while ! ping -q -c 1 google.com >/dev/null 2>&1; do
 done
 }
 
-pushover_message () {
-curl -s \
-  --form-string "token=$pushover_token" \
-  --form-string "user=$pushover_username" \
-  --form-string "message=The following device will be updated: $(cat /etc/hostname), $count pending packages will be updated here is the package list $packagelist" \
-    https://api.pushover.net/1/messages.json
-}
-
 pushbullet_message () {
   message="$count pending $type packages will be updated here is the package list $packagelist"
   title="The following device will be updated: $(cat /etc/hostname)"
@@ -45,7 +37,6 @@ if [ "$count" -eq "0" ]
   else echo "$count available updates on the following device: $(echo $HOSTNAME)\nHere is the package list\n $packagelist"
     if [ $(which kodi-send | wc -l) -eq 1 ]; then kodi-send --action="Notification($count available updates, Here is the packagelist: $packagelist,$timer)"; fi
     if [ $use_pushbullet = "enabled" ]; then pushbullet_message; fi
-    if [ $use_pushover = "enabled" ]; then pushover_message; fi
 fi }
 
 apt_list_packages () {
