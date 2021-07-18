@@ -1,5 +1,5 @@
 # My unattended scripts
-Like the repo name says, here is some stuff that im tweaking on while having nothing better todo.
+Like the repo name says, here is some stuff that im tweaking on while having nothing better todo, most of my script uses this config file below.
 
 Here is an example config for the scripts above
 
