@@ -96,7 +96,6 @@ fi
 }
 
 apt_upgrader () {
-  /etc/init.d/rpimonitor update
   apt_list_packages
   check_packages
   if [ "$count" -ge "1" ]
