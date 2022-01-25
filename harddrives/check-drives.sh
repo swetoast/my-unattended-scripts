@@ -2,6 +2,7 @@
 # Rev 8
 if [ "$(id -u)" != "0" ]; then exec sudo /bin/bash "$0"; fi
 CONFIG=/opt/etc/unattended_update.conf
+PREFAPP=bbf #this setting will be addedto /opt/etc/unattended_update.conf should shift between bbf and badblocks depending on user preferance
 
 if [ -f "$CONFIG" ]
     then    echo "Configuration file found at $CONFIG"
@@ -45,7 +46,7 @@ journalctl --rotate --vacuum-size=1M
 check_drives () {
 mkdir -p "$LOGS"/blocks
 mkdir -p "$LOGS"/smart
-run_bbf        
+run_$PREFAPP       
 run_smartctl
 }
 
@@ -63,6 +64,10 @@ if [ $(find /dev/ | grep -E mmcblk[0-9]$ | wc -l) -ge 1 ]; then
    for DEVICE in $( ls /dev/mmcblk[0-9] | cut -d '/' -f3); do /usr/local/bin/bbf scan /dev/"$DEVICE" -o "$LOGS"/blocks/"$DEVICE".log;chown "$USERNAME":users "$LOGS"/blocks/"$DEVICE".log; done
 fi
 fi
+}
+
+run_badblocks () {
+echo "todo"
 }
 
 run_smartctl () {
