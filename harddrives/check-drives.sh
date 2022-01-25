@@ -56,8 +56,8 @@ if [ $(find /dev/ | grep -E sd[a-z]$ | wc -l) -ge 1 ]; then
    for DEVICE in $( ls /dev/sd[a-z] | cut -d '/' -f3); do /usr/local/bin/bbf scan /dev/"$DEVICE" -o "$LOGS"/blocks/"$DEVICE".log;chown "$USERNAME":users "$LOGS"/blocks/"$DEVICE".log; done
 fi
 
-if [ $(find /dev/ | grep -E nvme[0-9]$ | wc -l) -ge 1 ]; then
-   for DEVICE in $( ls /dev/nvme[0-9] | cut -d '/' -f3); do /usr/local/bin/bbf scan /dev/"$DEVICE" -o "$LOGS"/blocks/"$DEVICE".log;chown "$USERNAME":users "$LOGS"/blocks/"$DEVICE".log; done
+if [ $(find /dev/ | grep -E nvme[0-9]n1$ | wc -l) -ge 1 ]; then
+   for DEVICE in $( ls /dev/nvme[0-9]n1 | cut -d '/' -f3); do /usr/local/bin/bbf scan /dev/"$DEVICE" -o "$LOGS"/blocks/"$DEVICE".log;chown "$USERNAME":users "$LOGS"/blocks/"$DEVICE".log; done
 fi
 
 if [ $(find /dev/ | grep -E mmcblk[0-9]$ | wc -l) -ge 1 ]; then
@@ -67,15 +67,15 @@ fi
 }
 
 run_badblocks () {
-if [ $(find /dev/ | grep -E sd[a-z]$ | wc -l) -ge 1 ]; then
+if [ $(find /dev/ | grep -E "sd[a-z]$" | wc -l) -ge 1 ]; then
     for DEVICE in $( ls /dev/sd[a-z] | cut -d '/' -f3); do badblocks -s /dev/"$DEVICE" -o "$LOGS"/blocks/"$DEVICE".log; chown "$USERNAME":users "$LOGS"/blocks/"$DEVICE".log; done
 fi
 
-if [ $(find /dev/ | grep -E nvme[0-9]$ | wc -l) -ge 1 ]; then
-    for DEVICE in $( ls /dev/nvme[0-9] | cut -d '/' -f3); do badblocks -s /dev/"$DEVICE" -o "$LOGS"/blocks/"$DEVICE".log; chown "$USERNAME":users "$LOGS"/blocks/"$DEVICE".log; done
+if [ $(find /dev/ | grep -E "nvme[0-9]n1$" | wc -l) -ge 1 ]; then
+    for DEVICE in $( ls /dev/nvme[0-9]n1 | cut -d '/' -f3); do badblocks -s /dev/"$DEVICE" -o "$LOGS"/blocks/"$DEVICE".log; chown "$USERNAME":users "$LOGS"/blocks/"$DEVICE".log; done
 fi
 
-if [ $(find /dev/ | grep -E mmcblk[0-9]$ | wc -l) -ge 1 ]; then
+if [ $(find /dev/ | grep -E "mmcblk[0-9]$" | wc -l) -ge 1 ]; then
     for DEVICE in $( ls /dev/mmcblk[0-9] | cut -d '/' -f3); do badblocks -s /dev/"$DEVICE" -o "$LOGS"/blocks/"$DEVICE".log; chown "$USERNAME":users "$LOGS"/blocks/"$DEVICE".log; done
 fi
 }
