@@ -43,7 +43,8 @@ journalctl --rotate --vacuum-size=1M
 }
 
 check_drives () {
-mkdir -p "$LOGS"/{blocks/smart}
+mkdir -p "$LOGS"/blocks
+mkdir -p "$LOGS"/smart
 run_bbf        
 run_smartctl
 }
