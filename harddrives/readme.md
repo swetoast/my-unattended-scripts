@@ -12,6 +12,8 @@ pushbullet_token | your tolken ere to store logs and usernames.
 
 ## Example Config
 
+Here is an example config for the scripts above, store at `/opt/etc/unattended_update.conf`
+
 ```
 #Enable or disable features here
 use_pushbullet="disabled"                                # enabled / disabled (default: disabled)
