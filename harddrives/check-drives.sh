@@ -76,7 +76,7 @@ if [ $(find /dev/ | grep -E nvme[0-9]$ | wc -l) -ge 1 ]; then
 fi
 
 if [ $(find /dev/ | grep -E mmcblk[0-9]$ | wc -l) -ge 1 ]; then
-    for DEVICE in $( ls /dev/mmcblk[0-9] | cut -d '/' -f3); badblocks -s /dev/"$DEVICE" -o "$LOGS"/blocks/"$DEVICE".log; chown "$USERNAME":users "$LOGS"/blocks/"$DEVICE".log; done
+    for DEVICE in $( ls /dev/mmcblk[0-9] | cut -d '/' -f3); do badblocks -s /dev/"$DEVICE" -o "$LOGS"/blocks/"$DEVICE".log; chown "$USERNAME":users "$LOGS"/blocks/"$DEVICE".log; done
 fi
 }
 
