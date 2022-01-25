@@ -2,7 +2,7 @@
 # Rev 8
 if [ "$(id -u)" != "0" ]; then exec sudo /bin/bash "$0"; fi
 CONFIG=/opt/etc/unattended_update.conf
-PREFAPP=bbf #this setting will be addedto /opt/etc/unattended_update.conf should shift between bbf and badblocks depending on user preferance
+PREFAPP=bbf #this setting will be added to /opt/etc/unattended_update.conf should shift between bbf or badblocks depending on user preferance
 
 if [ -f "$CONFIG" ]
     then    echo "Configuration file found at $CONFIG"
