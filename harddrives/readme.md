@@ -7,7 +7,7 @@ Configuration Values | description
 PREFAPP | bbf / badblocks 
 USERNAME | username for the system
 LOGS | desired path to logs
-use_pushbullet | enable / disable
+use_pushbullet | enable / disabled
 pushbullet_token | your tolken for pushbullet
 
 ## Example Config
