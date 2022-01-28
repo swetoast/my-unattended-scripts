@@ -8,7 +8,7 @@ PREFAPP | bbf / badblocks
 USERNAME | username for the system
 LOGS | desired path to logs
 use_pushbullet | enable / disable
-pushbullet_token | your tolken ere to store logs and usernames.
+pushbullet_token | your tolken for pushbullet
 
 ## Example Config
 
