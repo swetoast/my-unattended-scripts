@@ -1,4 +1,8 @@
-# antivirus_scan.sh
+# Clamscan Notification Service
+
+Install clamservice to `/usr/bin/clamservice`
+
+then add service to systemd
 
 Configuration Paramterers
 
