@@ -1,0 +1,10 @@
+[Unit]
+Description=Clamscan notification service
+
+[Service]
+ExecStartPre=/usr/bin/clamservice -pre
+ExecStart=/usr/bin/clamservice
+ExecStartPost=/usr/bin/clamservice -post
+
+[Install]
+WantedBy=multi-user.target
