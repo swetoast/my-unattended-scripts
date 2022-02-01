@@ -41,8 +41,8 @@ function_scan_system () {
 
 option="${1}"
 case ${option} in
-   -pre) function_clean_logs
-         function_startup_message ;;
+   -pre) function_startup_message
+         function_clean_logs ;;
       *) function_scan_system ;;
   -post) function_notification_message ;;
 esac
