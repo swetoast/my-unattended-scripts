@@ -36,7 +36,8 @@ rm $LOGS/antivirus/*
 }
 
 function_scan_system () {
-/usr/bin/clamscan --recursive --allmatch --infected --move=/home/toast/.infected --log=/home/toast/logs/antivirus/avscan.log /  
+/usr/bin/clamscan --recursive --allmatch --infected --move=/home/toast/.infected --log=$LOGS/antivirus/avscan.log /
+chown "$USERNAME":users "$LOGS"/antivirus/avscan.log
 }
 
 option="${1}"
