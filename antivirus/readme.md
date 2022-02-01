@@ -2,7 +2,7 @@
 
 Install clamservice to `/usr/bin/clamservice`
 
-then add service to systemd
+then add service and timer to systemd
 
 Configuration Paramterers
 
