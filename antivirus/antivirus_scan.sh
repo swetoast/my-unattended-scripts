@@ -32,11 +32,12 @@ for SUMMARY in $(find "$LOGS" -maxdepth 1 -type f -size +1k); do function_notifi
 
 function_clean_logs () {
 mkdir -p $LOGS/antivirus
+mkdir -p $HOME/.infected
 rm $LOGS/antivirus/*
 }
 
 function_scan_system () {
-/usr/bin/clamscan --recursive --allmatch --infected --move=/home/toast/.infected --log=$LOGS/antivirus/avscan.log /
+/usr/bin/clamscan --recursive --allmatch --infected --move=$HOME/.infected --log=$LOGS/antivirus/avscan.log /
 chown "$USERNAME":users "$LOGS"/antivirus/avscan.log
 }
 
