@@ -1,5 +1,7 @@
 [Unit]
 Description=Clamscan notification service
+Requires=clamav-daemon.service
+After=clamav-daemon.service
 
 [Service]
 ExecStartPre=/usr/bin/clamservice -pre
