@@ -17,7 +17,7 @@ setting_debug_disable () { set +x; }
 if [ "$set_debug" = "enabled" ]; then setting_debug_enabled; fi
 
 function_startup_message () {
-curl -u "$pushbullet_token": https://api.pushbullet.com/v2/pushes -d type=note -d title="HDD Scan" -d body="Started a Antivirus scan on $HOSTNAME on the $(date)"
+curl -u "$pushbullet_token": https://api.pushbullet.com/v2/pushes -d type=note -d title="Antivirus Scan" -d body="Started a Antivirus Scan on $HOSTNAME on the $(date)"
 }
 
 function_notification_message () {
