@@ -90,8 +90,8 @@ pacman -Sy
 pacman_list_packages
 check_packages
 if [ "$count" -ge "1" ]; then
-  yes | pacman -Suy --overwrite="*"
-  yes | pacman -Sc
+  pacman -Suuyy --noconfirm --needed --overwrite="*"
+  pacman -Sc --noconfirm --needed
 fi
 }
 
