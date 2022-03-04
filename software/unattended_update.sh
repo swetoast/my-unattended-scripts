@@ -93,7 +93,7 @@ if [ "$count" -ge "1" ]; then
   pacman -Suuyy --noconfirm --needed --overwrite="*"
   pacman -Sc --noconfirm --needed
   pacman -Scc --noconfirm --needed
-  if [ $(which paccache | wc -l) -eq 1 ]; then paccache -rk 1; fi
+  if [ $(which paccache | wc -l) -eq 1 ]; then paccache -ruk0 ; fi
 fi
 }
 
