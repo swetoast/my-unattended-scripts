@@ -91,9 +91,9 @@ pacman_list_packages
 check_packages
 if [ "$count" -ge "1" ]; then
   pacman -Suuyy --noconfirm --needed --overwrite="*"
+  if [ $(which paccache | wc -l) -eq 1 ]; then paccache -ruk0 ; fi
   pacman -Sc --noconfirm --needed
   pacman -Scc --noconfirm --needed
-  if [ $(which paccache | wc -l) -eq 1 ]; then paccache -ruk0 ; fi
 fi
 }
 
