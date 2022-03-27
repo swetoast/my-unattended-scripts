@@ -33,6 +33,10 @@ pushbullet_message () {
   curl -u $pushbullet_token: https://api.pushbullet.com/v2/pushes -d type=note -d title="$title" -d body="$message"
 }
 
+pushbullet_reboot_message () {
+curl -u "$pushbullet_token": https://api.pushbullet.com/v2/pushes -d type=note -d title="Rebooting $(cat /etc/hostname)" -d body="Rebooting $(cat /etc/hostname) after a kernel update"
+}
+
 check_packages () {
 if [ "$count" -eq "0" ]
   then echo "No available updates on the following device: $(echo $HOSTNAME)"
@@ -174,7 +178,28 @@ detect_updater () {
   if [ $(su - $USERNAME -c "which rustup" | wc -l) -eq 1 ]; then rust_upgrader; fi
 }
 
+reboot_check () {
+case $(hostnamectl | grep "Operating System" | cut -d ":" -f 2 | awk '{print $1 }') in
+Raspbian) if [ -f /var/run/reboot-required ]
+          then if [ $use_pushbullet = "enabled" ]; then pushbullet_reboot_message; fi; sleep 5; reboot; fi ;;
+  Debian) if [ -f /var/run/reboot-required ]
+          then if [ $use_pushbullet = "enabled" ]; then pushbullet_reboot_message; fi; sleep 5; reboot; fi ;;
+  Ubuntu) if [ -f /var/run/reboot-required ]
+          then if [ $use_pushbullet = "enabled" ]; then pushbullet_reboot_message; fi; sleep 5; reboot; fi ;;
+    Arch) rpicheck=$(cat /proc/device-tree/model | awk '{ print $1 }')
+          if [ "$rpicheck" = "Raspberry" ]; 
+          then active_kernel=$(uname -r | grep -oE "([0-9]+\.)+[0-9]+((-[0-9])+)?")
+               current_kernel=$(pacman -Q linux-rpi | grep -oE "[0-9].+")
+          else active_kernel=$(uname -r | grep -oE "([0-9]+\.)+[0-9]+((-[0-9])+)?")
+               current_kernel=$(pacman -Q linux | grep -oE "[0-9].+")
+          fi
+          if ! [ "$active_kernel" = "$current_kernel" ]; then
+          if [ $use_pushbullet = "enabled" ]; then pushbullet_reboot_message; fi; sleep 5; reboot; fi ;;
+esac
+}
+
 check_online
 detect_updater
+reboot_check
 
 if [ $set_debug = "enabled" ]; then setting_debug_disable; fi
