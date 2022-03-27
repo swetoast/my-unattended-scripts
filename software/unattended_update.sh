@@ -34,7 +34,7 @@ pushbullet_message () {
 }
 
 pushbullet_reboot_message () {
-curl -u "$pushbullet_token": https://api.pushbullet.com/v2/pushes -d type=note -d title="Rebooting $(cat /etc/hostname)" -d body="Rebooting $(cat /etc/hostname) after a kernel update"
+curl -u "$pushbullet_token": https://api.pushbullet.com/v2/pushes -d type=note -d title="Rebooting $(cat /etc/hostname)" -d body="Rebooting $(cat /etc/hostname) after a kernel update to version: $(pacman -Q linux | grep -oE "[0-9].+")"
 }
 
 check_packages () {
