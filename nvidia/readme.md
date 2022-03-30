@@ -1,3 +1,5 @@
+## NVIDIA Graphics Card Fan Controller
+
 How to set up headless mode for Nvidia Settings
 
 1. Download fresh drivers, https://www.nvidia.com/Download/index.aspx?lang=en-us
