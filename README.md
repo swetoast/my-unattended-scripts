@@ -1,4 +1,4 @@
-# My unattended scripts
+# My Unattended Scripts
 Like the repo name says, here is some stuff that im tweaking on while having nothing better to do, most of my script uses this config file below.
 
 Here is an example config for the scripts above, store at `/opt/etc/unattended_update.conf`
