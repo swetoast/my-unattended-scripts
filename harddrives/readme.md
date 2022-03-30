@@ -29,4 +29,5 @@ set_debug="disabled"                                    # Set debug option to sh
 HOSTNAME="My Machine"
 USERNAME="pi"
 LOGS=/home/pi/logs
+PREFAPP=badblocks
 ```
