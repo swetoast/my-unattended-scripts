@@ -1,5 +1,5 @@
 #!/bin/sh
-# Rev 3
+# Rev 4
 
 config=/opt/etc/unattended_update.conf
 
