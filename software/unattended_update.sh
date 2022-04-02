@@ -38,7 +38,7 @@ curl -u "$pushbullet_token": https://api.pushbullet.com/v2/pushes -d type=note -
 }
 
 pushbullet_reboot_deb_message () {
-curl -u "$pushbullet_token": https://api.pushbullet.com/v2/pushes -d type=note -d title="Rebooting $(cat /etc/hostname)" -d body="Rebooting $(cat /etc/hostname) after a kernel update to version"
+curl -u "$pushbullet_token": https://api.pushbullet.com/v2/pushes -d type=note -d title="Rebooting $(cat /etc/hostname)" -d body="Rebooting $(cat /etc/hostname) after a kernel update to new version"
 }
 
 check_packages () {
