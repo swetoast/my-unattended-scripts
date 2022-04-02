@@ -38,7 +38,7 @@ curl -u "$pushbullet_token": https://api.pushbullet.com/v2/pushes -d type=note -
 }
 
 pushbullet_reboot_deb_message () {
-curl -u "$pushbullet_token": https://api.pushbullet.com/v2/pushes -d type=note -d title="Rebooting $(cat /etc/hostname)" -d body="Rebooting $(cat /etc/hostname) after a kernel update to version)"
+curl -u "$pushbullet_token": https://api.pushbullet.com/v2/pushes -d type=note -d title="Rebooting $(cat /etc/hostname)" -d body="Rebooting $(cat /etc/hostname) after a kernel update to version"
 }
 
 check_packages () {
@@ -189,7 +189,7 @@ Raspbian) if [ -f /var/run/reboot-required ]
   Debian) if [ -f /var/run/reboot-required ]
           then if [ $use_pushbullet = "enabled" ]; then pushbullet_reboot_deb_message; fi; sleep 5; reboot; fi ;;
   Ubuntu) if [ -f /var/run/reboot-required ]
-          then if [ $use_pushbullet = "enabled" ]; then pushbullet_reboot_deb_message; fi; sleep 5; reboot; fi ;;
+          then if [ $use_pushbullet = "enabled" ]; then pushbullet_reboot_deb_message; fi; sleep 300; reboot; fi ;;
     Arch) rpicheck=$(cat /proc/device-tree/model | awk '{ print $1 }')
           if [ "$rpicheck" = "Raspberry" ]; 
           then active_kernel=$(uname -r | grep -oE "([0-9]+\.)+[0-9]+((-[0-9])+)?")
