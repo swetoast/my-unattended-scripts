@@ -20,7 +20,7 @@ get_file (){
 for COUNTYCODE in $CC; do
 wget --no-check-certificate -nv -c -t=10 $URL/$COUNTYCODE.cidr -O /tmp/countries-ipv4.zone
 
-for DOMAIN in /etc/portblocker/whitelist.conf; do
+for DOMAIN in /etc/portblocker/whitelist_dns.conf; do
 /usr/bin/dig "$DOMAIN" | /usr/bin/grep "$DOMAIN" | /usr/bin/grep -oE "([0-9]{1,3}\.){3}[0-9]{1,3}" >> /tmp/countries-ipv4.zone
 done
 
