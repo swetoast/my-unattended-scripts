@@ -15,3 +15,6 @@ Set values in the file
 | [export LAN=](https://github.com/swetoast/my-unattended-scripts/blob/1a5afacaf69928b53162244251fc8974412687dd/security/geofence.sh#L6) | # your lan network |
 | [export CC=](https://github.com/swetoast/my-unattended-scripts/blob/1a5afacaf69928b53162244251fc8974412687dd/security/geofence.sh#L15) | # your country code |
 
+2 sites with cidr ranges
+* https://www.ipdeny.com/ipblocks/
+* https://github.com/herrbischoff/country-ip-blocks/tree/master/ipv4
