@@ -21,7 +21,7 @@ for COUNTYCODE in $CC; do
 wget --no-check-certificate -nv -c -t=10 $URL/$COUNTYCODE.cidr -O /tmp/countries-ipv4.zone
 
 for DOMAIN in /etc/portblocker/whitelist.conf; do
-/usr/bin/dig plex.tv | /usr/bin/grep "$DOMAIN" | /usr/bin/grep -oE "([0-9]{1,3}\.){3}[0-9]{1,3}" >> /tmp/countries-ipv4.zone
+/usr/bin/dig "$DOMAIN" | /usr/bin/grep "$DOMAIN" | /usr/bin/grep -oE "([0-9]{1,3}\.){3}[0-9]{1,3}" >> /tmp/countries-ipv4.zone
 done
 
 for IP in /etc/portblocker/whitelist_ip.conf; do
