@@ -3,10 +3,11 @@
 # Geofence for countries
 # Script made by Toast
 # Set Lan network
-LAN=10.0.0.0/16
+export LAN=10.0.0.0/16
 # Alternative Country IP Blocks
 # https://www.ipdeny.com/ipblocks/
-# https://github.com/herrbischoff/country-ip-blocks
+# https://github.com/herrbischoff/country-ip-blocks/tree/master/ipv4
+export URL=https://raw.githubusercontent.com/herrbischoff/country-ip-blocks/master/ipv4
 # Set ports that should be limited here
 export PPTCP=$(cat /etc/portblocker/blockport_tcp.conf)
 export PPUDP=$(cat /etc/portblocker/blockport_udp.conf)
@@ -17,7 +18,7 @@ se
 
 get_file (){
 for COUNTYCODE in $CC; do
-wget --no-check-certificate -nv -c -t=10 https://raw.githubusercontent.com/herrbischoff/country-ip-blocks/master/ipv4/$COUNTYCODE.cidr -O /tmp/countries-ipv4.zone
+wget --no-check-certificate -nv -c -t=10 $URL/$COUNTYCODE.cidr -O /tmp/countries-ipv4.zone
 
 for DOMAIN in /etc/portblocker/whitelist.conf; do
 /usr/bin/dig plex.tv | /usr/bin/grep "$DOMAIN" | /usr/bin/grep -oE "([0-9]{1,3}\.){3}[0-9]{1,3}" >> /tmp/countries-ipv4.zone
