@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Portblocker for countries other then selected
+# Rev. 1
+# Geofence for countries
 # Script made by Toast
 # Set Lan network
 LAN=10.0.0.0/16
