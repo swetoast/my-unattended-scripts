@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Rev 8
 if [ "$(id -u)" != "0" ]; then exec sudo /bin/bash "$0"; fi
 
