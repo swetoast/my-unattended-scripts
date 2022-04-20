@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Revision 7
 # A Fan Controling script for my nvidia Card in a server
 # Store this file at /usr/bin/fancontrol and then use the service to run it with systemd
