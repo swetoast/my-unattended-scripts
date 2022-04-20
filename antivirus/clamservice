@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Rev 1
 if [ "$(id -u)" != "0" ]; then exec sudo /bin/bash "$0"; fi
 CONFIG=/opt/etc/unattended_update.conf
