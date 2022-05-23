@@ -183,6 +183,7 @@ detect_updater () {
 }
 
 reboot_check () {
+if [ "$needs_reboot" = "enabled" ]; then
 case $(hostnamectl | grep "Operating System" | cut -d ":" -f 2 | awk '{print $1 }') in
 Raspbian) if [ -f /var/run/reboot-required ]
           then if [ $use_pushbullet = "enabled" ]; then pushbullet_reboot_deb_message; fi; sleep 5; reboot; fi ;;
@@ -200,6 +201,7 @@ Raspbian) if [ -f /var/run/reboot-required ]
           if ! [ "$active_kernel" = "$current_kernel" ]; then
           if [ $use_pushbullet = "enabled" ]; then pushbullet_reboot_arch_message; fi; sleep 5; reboot; fi ;;
 esac
+fi
 }
 
 check_online
