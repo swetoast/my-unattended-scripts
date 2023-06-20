@@ -90,9 +90,9 @@ opkg_list_packages () {
 
 pip_list_packages () {
   type=python
-  pending=$(echo "$(pip list --outdated --format=freeze | wc -l) oudated python packages")
-  packagelist=$(pip list --outdated --format=freeze)
-  count=$(pip list --outdated --format=freeze | wc -l)
+  pending=$(echo "$(pip3 list -o | cut -f1 -d' ' | tr " " "\n" | awk '{if(NR>=3)print}' | cut -d' ' -f1 | wc -l) oudated python packages")
+  packagelist=$(pip3 list -o | cut -f1 -d' ' | tr " " "\n" | awk '{if(NR>=3)print}' | cut -d' ' -f1)
+  count=$(pip3 list -o | cut -f1 -d' ' | tr " " "\n" | awk '{if(NR>=3)print}' | cut -d' ' -f1 | wc -l)
 }
 
 pacman_upgrader () {
@@ -159,7 +159,7 @@ python_upgrader () {
   pip_list_packages
   check_packages
   if [ "$count" -ge "1" ]
-    then pip freeze --local | grep -v '^\-e' | cut -d = -f 1  | xargs -n1 sudo -H pip install -U
+    then pip3 list -o | cut -f1 -d' ' | tr " " "\n" | awk '{if(NR>=3)print}' | cut -d' ' -f1 | xargs -n1 pip3 install -U
   fi }
 
 snap_upgrader () {
