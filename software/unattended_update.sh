@@ -159,7 +159,7 @@ python_upgrader () {
   pip_list_packages
   check_packages
   if [ "$count" -ge "1" ]
-    then pip list --outdated --format=freeze | grep -v '^\-e' | cut -d = -f 1  | xargs -n1 pip install --exists-action s -U
+    then pip freeze --local | grep -v '^\-e' | cut -d = -f 1  | xargs -n1 sudo -H pip install -U
   fi }
 
 snap_upgrader () {
