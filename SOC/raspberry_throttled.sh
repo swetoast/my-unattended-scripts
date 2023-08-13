@@ -1,11 +1,10 @@
-#!/bin/bash                                                                                                                                         #!/bin/bash
+#!/bin/bash
 # Rev 1
-if [ "$(id -u)" != "0" ]; then exec sudo /bin/bash "$0"; fi
+
 CONFIG=/opt/etc/unattended_update.conf
 
-if [ -f "$CONFIG" ]
-    then    echo "Configuration file found at $CONFIG"
-    else    echo "No configuration file present at $CONFIG"
+if [ ! -f "$CONFIG" ]
+    then    echo "No configuration file present at $CONFIG"
             exit 0
 fi
 
