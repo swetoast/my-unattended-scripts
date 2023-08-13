@@ -1,5 +1,5 @@
 #!/bin/bash
-
+# Rev 1
 config=/opt/etc/unattended_update.conf
 
 if [ "$(id -u)" != "0" ]; then exec /usr/bin/sudo /bin/sh "$0"; fi
