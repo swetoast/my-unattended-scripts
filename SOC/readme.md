@@ -6,7 +6,7 @@ Here is an example config for the scripts above, store at `/opt/etc/unattended_u
 #Enable or disable features here
 use_pushbullet="disabled"                                # enabled / disabled (default: disabled)
 
-#Pushbullet/Pushover settings
+#Pushbullet
 pushbullet_token=""                                     # Your access token here (https://docs.pushbullet.com/)
 
 #General settings
