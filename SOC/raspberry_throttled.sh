@@ -1,12 +1,12 @@
-#!/bin/bash
+#!/bin/bash                                                                                                                                         #!/bin/bash
 # Rev 1
+set -i
 config=/opt/etc/unattended_update.conf
 
 if [ "$(id -u)" != "0" ]; then exec /usr/bin/sudo /bin/sh "$0"; fi
 
 if [ -f $config ]
   then echo "Configuration file found at $config"
-       echo "Updating Repository lists."
   else echo "No configuration file present at $config"
        exit 0
 fi
@@ -18,4 +18,8 @@ pushbullet_message () {
 curl -u "$pushbullet_token": https://api.pushbullet.com/v2/pushes -d type=note -d title="Throttling Detected on $(cat /etc/hostname)" -d body="Throttling Detected on $(cat /etc/hostname) Status code: $throttled"
 }
 
+check_throttled () {
 if [ "$get_throttled" -ne 0 ]; then pushbullet_message; fi
+}
+
+check_throttled
