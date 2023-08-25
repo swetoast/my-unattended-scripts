@@ -1,5 +1,5 @@
 #!/bin/bash
-# Rev 1
+# Rev 2
 
 CONFIG=/opt/etc/unattended_update.conf
 
@@ -19,11 +19,16 @@ throttled=$(vcgencmd get_throttled | cut -d "=" -f 2)
 get_throttled=$(vcgencmd get_throttled | cut -d "=" -f 2 | cut -d "x" -f 2)
 
 pushbullet_message () {
-curl -u "$pushbullet_token": https://api.pushbullet.com/v2/pushes -d type=note -d title="Throttling Detected on $(cat /etc/hostname)" -d body="Throttling Detected on $(cat /etc/hostname) Status code: $throttled"
+curl -u "$pushbullet_token": https://api.pushbullet.com/v2/pushes -d type=note -d title="Throttling Detected on $(cat /etc/hostname)" -d body="Current status is $current"
 }
 
 check_throttled () {
-if [ "$get_throttled" -ne 0 ]; then pushbullet_message; fi
+case $get_throttled in
+0x10000) current=$(echo "Under-voltage has occurred") ;;
+0x20000) current=$(echo "Arm frequency capping has occurred") ;;
+0x40000) current=$(echo "Throttling has occurred") ;;
+0x80000) current=$(echo "Soft temperature limit has occurred") ;;
+esac
 }
 
 if [ "$set_debug" = "enabled" ]; then setting_debug_disable; fi
