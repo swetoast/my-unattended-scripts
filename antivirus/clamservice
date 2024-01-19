@@ -37,7 +37,7 @@ rm $LOGS/antivirus/*
 }
 
 function_scan_system () {
-nohup /usr/bin/clamscan --recursive --allmatch --infected --move=$HOME/.infected --exclude=/proc --exclude=/sys --exclude=/dev --log=$LOGS/antivirus/avscan.log /
+nohup /usr/bin/clamscan --recursive --allmatch --infected --move="$HOME/.infected" --exclude-dir=/proc --exclude-dir=/sys --exclude-dir=/dev --log="$LOGS/antivirus/avscan.log" --max-filesize=4000M --max-scansize=4000M --bytecode=yes /
 chown "$USERNAME":users "$LOGS"/antivirus/avscan.log
 }
 
