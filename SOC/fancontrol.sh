@@ -26,11 +26,11 @@ pinctrl_cmd() {
 
 # Function to get the fan speed
 get_fan_speed() {
-    local speed=$(pinctrl get $GPIO_PIN | awk '{print $5}')
+    local speed=$(pinctrl get $GPIO_PIN | grep -oE "(lo|hi)")
     if [[ $speed == "hi" ]]; then
-        echo "High"  # Fan is running at high speed
-    else
-        echo "Low"   # Fan is running at low speed
+        echo "high"  # Fan is running at high speed
+    elif [[ $speed == "lo" ]]; then
+        echo "low"   # Fan is running at low speed
     fi
 }
 
@@ -47,8 +47,12 @@ control_fan() {
     local fan_speed=$(get_fan_speed)
     if [[ $fan_state != $state || $fan_speed != $speed ]]; then
         pinctrl set $GPIO_PIN op dl
-        pinctrl set $GPIO_PIN $speed
-        echo "Fan set to $speed speed."
+        if [[ $speed == "high" ]]; then
+            pinctrl set $GPIO_PIN a2
+        elif [[ $speed == "low" ]]; then
+            pinctrl set $GPIO_PIN a1
+        fi
+        echo "Fan set to $(get_fan_speed) speed."
         sleep $SPIN_TIME
     fi
 }
@@ -66,9 +70,9 @@ turn_off_fan() {
 check_and_control_fan() {
     local temp=$1
     if (( temp > HIGH_THRESHOLD )); then
-        control_fan "on" "a1"
+        control_fan "on" "$(get_fan_speed)"
     elif (( temp > MEDIUM_THRESHOLD )); then
-        control_fan "on" "a2"
+        control_fan "on" "$(get_fan_speed)"
     else
         turn_off_fan
     fi
