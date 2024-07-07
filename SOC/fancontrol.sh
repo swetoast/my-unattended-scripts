@@ -82,8 +82,9 @@ while true; do
     # Get the current hour
     CURRENT_HOUR=$(date +%H)
 
-    # If the current hour is within the quiet hours, sleep until the end of the quiet hours
+    # If the current hour is within the quiet hours, turn off the fan and sleep until the end of the quiet hours
     if (( CURRENT_HOUR >= QUIET_HOURS_START || CURRENT_HOUR < QUIET_HOURS_END )); then
+        turn_off_fan
         sleep $(( (24 + QUIET_HOURS_END - CURRENT_HOUR) % 24 * 3600 ))
         continue
     fi
