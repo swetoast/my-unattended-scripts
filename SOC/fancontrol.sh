@@ -69,7 +69,6 @@ while true; do
 
     # If the current hour is within the quiet hours, sleep until the end of the quiet hours
     if (( CURRENT_HOUR >= QUIET_HOURS_START || CURRENT_HOUR < QUIET_HOURS_END )); then
-        echo "Quiet hours. Fan control paused."
         sleep $(( (24 + QUIET_HOURS_END - CURRENT_HOUR) % 24 * 3600 ))
         continue
     fi
