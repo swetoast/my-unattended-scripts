@@ -1,5 +1,5 @@
 #!/bin/bash
-#set -x
+
 # Set your high and medium temperature thresholds in degrees Celsius
 HIGH_THRESHOLD=60
 MEDIUM_THRESHOLD=50
@@ -12,6 +12,10 @@ FAN_STATE="off"
 
 # Set the spin time in seconds (3 minutes = 180 seconds)
 SPIN_TIME=180
+
+# Set the start and end of the quiet hours (22:00 - 08:00)
+QUIET_HOURS_START=22
+QUIET_HOURS_END=8
 
 # Function to get the temperature
 get_temp() {
@@ -56,6 +60,16 @@ stop_fans() {
 }
 
 while true; do
+    # Get the current hour
+    CURRENT_HOUR=$(date +%H)
+
+    # If the current hour is within the quiet hours, sleep until the end of the quiet hours
+    if (( CURRENT_HOUR >= QUIET_HOURS_START || CURRENT_HOUR < QUIET_HOURS_END )); then
+        echo "Quiet hours. Fan control paused."
+        sleep $(( (24 + QUIET_HOURS_END - CURRENT_HOUR) % 24 * 3600 ))
+        continue
+    fi
+
     # Get the temperature in degrees Celsius
     TEMP=$(get_temp)
 
