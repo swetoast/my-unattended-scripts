@@ -1,14 +1,11 @@
 #!/bin/bash
 
 # Set your high and medium temperature thresholds in degrees Celsius
-HIGH_THRESHOLD=60
-MEDIUM_THRESHOLD=50
+HIGH_THRESHOLD=65
+MEDIUM_THRESHOLD=55
 
 # Set your GPIO pin connected to the fan
 GPIO_PIN=45
-
-# Set the fan state to off initially
-FAN_STATE="off"
 
 # Set the spin time in seconds (3 minutes = 180 seconds)
 SPIN_TIME=180
@@ -22,41 +19,48 @@ get_temp() {
     vcgencmd measure_temp | awk -F '[=.]' '{print $2}'
 }
 
+# Function to execute pinctrl command
+pinctrl_cmd() {
+    pinctrl $@
+}
+
+# Function to get the fan state
+get_fan_state() {
+    pinctrl_cmd lev $GPIO_PIN
+}
+
 # Function to control the fan
 control_fan() {
     local state=$1
-    if [[ $state == "high" ]]; then
-        pinctrl set $GPIO_PIN a1
-    elif [[ $state == "medium" ]]; then
-        pinctrl set $GPIO_PIN a2
+    local speed=$2
+    local fan_state=$(get_fan_state)
+    if [[ $fan_state == "1" ]]; then
+        pinctrl_cmd set $GPIO_PIN op dl
+        pinctrl_cmd set $GPIO_PIN $speed
+        echo "Fan set to $speed speed."
+        sleep $SPIN_TIME
     fi
-    FAN_STATE=$state
-    echo "Fan set to $state speed. Starting to poll GPIO pin state..."
-    # Create a temporary file
-    TEMP_FILE=$(mktemp)
-    # Start polling in the background and store the data in the temporary file
-    pinctrl poll $GPIO_PIN > $TEMP_FILE &
-    POLL_PID=$!
-    # Sleep for the spin time
-    sleep $SPIN_TIME
 }
 
-# Function to stop polling
-stop_polling() {
-    # Kill the background polling process using its process ID
-    kill $POLL_PID
-    # Read and print the data from the temporary file
-    local pin_state=$(cat $TEMP_FILE)
-    echo "Stopped polling GPIO pin state. Data: $pin_state"
-    # Remove the temporary file
-    rm $TEMP_FILE
+# Function to turn off the fan
+turn_off_fan() {
+    local fan_state=$(get_fan_state)
+    if [[ $fan_state == "0" ]]; then
+        pinctrl_cmd set $GPIO_PIN op dh
+        echo "Fan turned off."
+    fi
 }
 
-# Function to stop the fans
-stop_fans() {
-    pinctrl $GPIO_PIN a0
-    FAN_STATE="off"
-    echo "Fan turned off."
+# Function to check and control fan based on temperature
+check_and_control_fan() {
+    local temp=$1
+    if (( temp > HIGH_THRESHOLD )); then
+        control_fan "on" "a1"
+    elif (( temp > MEDIUM_THRESHOLD )); then
+        control_fan "on" "a2"
+    else
+        turn_off_fan
+    fi
 }
 
 while true; do
@@ -73,20 +77,8 @@ while true; do
     # Get the temperature in degrees Celsius
     TEMP=$(get_temp)
 
-    # Determine the desired fan state based on the temperature
-    if (( TEMP > HIGH_THRESHOLD )); then
-        if [[ $FAN_STATE != "high" ]]; then
-            control_fan "high"
-        fi
-    elif (( TEMP > MEDIUM_THRESHOLD )); then
-        if [[ $FAN_STATE != "medium" ]]; then
-            control_fan "medium"
-        fi
-    else
-        if [[ $FAN_STATE != "off" ]]; then
-            stop_polling
-            stop_fans
-        fi
-    fi
+    # Check and control fan based on temperature
+    check_and_control_fan $TEMP
+
     sleep 1
 done
