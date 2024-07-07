@@ -1,5 +1,5 @@
 #!/bin/bash
-
+#set -x
 # Set your high and medium temperature thresholds in degrees Celsius
 HIGH_THRESHOLD=60
 MEDIUM_THRESHOLD=50
