@@ -17,6 +17,12 @@ HIGH_SPEED_SPIN_TIME=600
 QUIET_HOURS_START=22
 QUIET_HOURS_END=8
 
+# Define the duration for which temperature data is stored (in seconds)
+HISTORY_DURATION=60
+
+# Initialize the temperature history array
+TEMPERATURE_HISTORY=()
+
 # Function to get the temperature
 get_temp() {
     vcgencmd measure_temp | awk -F '[=.]' '{print $2}'
@@ -97,6 +103,24 @@ check_and_control_fan() {
     fi
 }
 
+# Function to update the temperature history
+update_temp_history() {
+    local temp=$1
+    if [ ${#TEMPERATURE_HISTORY[@]} -ge $HISTORY_DURATION ]; then
+        TEMPERATURE_HISTORY=("${TEMPERATURE_HISTORY[@]:1}") # Remove the oldest temperature
+    fi
+    TEMPERATURE_HISTORY+=("$temp") # Add the new temperature to the end of the array
+}
+
+# Function to calculate the average temperature
+average_temp() {
+    local sum=0
+    for temp in "${TEMPERATURE_HISTORY[@]}"; do
+        let sum+=$temp
+    done
+    echo $((sum / ${#TEMPERATURE_HISTORY[@]}))
+}
+
 while true; do
     # Get the current hour
     CURRENT_HOUR=$(date +%-H)
@@ -111,8 +135,17 @@ while true; do
     # Get the temperature in degrees Celsius
     TEMP=$(get_temp)
 
-    # Check and control fan based on temperature
-    check_and_control_fan $TEMP
+    # Update the temperature history
+    update_temp_history $TEMP
+
+    # If the temperature history array has reached its maximum size
+    if [ ${#TEMPERATURE_HISTORY[@]} -ge $HISTORY_DURATION ]; then
+        # Calculate the average temperature
+        AVG_TEMP=$(average_temp)
+
+        # Check and control fan based on average temperature
+        check_and_control_fan $AVG_TEMP
+    fi
 
     sleep 1
 done
