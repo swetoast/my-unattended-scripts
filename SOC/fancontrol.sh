@@ -86,10 +86,12 @@ turn_off_fan() {
 # Function to check and control fan based on temperature
 check_and_control_fan() {
     local temp=$1
-    if (( temp > HIGH_THRESHOLD )); then
-        control_fan "on" "$(get_fan_speed)"
+    if [[ $(check_overheat) == "overheated" ]]; then
+        control_fan "on" "high"
+    elif (( temp > HIGH_THRESHOLD )); then
+        control_fan "on" "high"
     elif (( temp > MEDIUM_THRESHOLD )); then
-        control_fan "on" "$(get_fan_speed)"
+        control_fan "on" "low"
     else
         turn_off_fan
     fi
