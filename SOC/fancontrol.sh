@@ -1,5 +1,4 @@
 #!/bin/bash
-
 # Set your high and medium temperature thresholds in degrees Celsius
 HIGH_THRESHOLD=65
 MEDIUM_THRESHOLD=55
@@ -12,7 +11,7 @@ SPIN_TIME=180
 
 # Set the start and end of the quiet hours (22:00 - 08:00)
 QUIET_HOURS_START=22
-QUIET_HOURS_END=8
+QUIET_HOURS_END=08
 
 # Function to get the temperature
 get_temp() {
