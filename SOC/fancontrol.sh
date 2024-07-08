@@ -112,13 +112,17 @@ update_temp_history() {
     TEMPERATURE_HISTORY+=("$temp") # Add the new temperature to the end of the array
 }
 
-# Function to calculate the average temperature
-average_temp() {
-    local sum=0
-    for temp in "${TEMPERATURE_HISTORY[@]}"; do
-        let sum+=$temp
-    done
-    echo $((sum / ${#TEMPERATURE_HISTORY[@]}))
+# Function to calculate the median temperature
+median_temp() {
+    local temps=($(printf '%d\n' "${TEMPERATURE_HISTORY[@]}" | sort -n))
+    local count=${#temps[@]}
+    if (( count % 2 == 0 )); then
+        # If there are an even number of temperatures, the median is the average of the two middle values
+        echo $(( (temps[count/2] + temps[count/2 - 1]) / 2 ))
+    else
+        # If there are an odd number of temperatures, the median is the middle value
+        echo ${temps[count/2]}
+    fi
 }
 
 while true; do
@@ -140,11 +144,11 @@ while true; do
 
     # If the temperature history array has reached its maximum size
     if [ ${#TEMPERATURE_HISTORY[@]} -ge $HISTORY_DURATION ]; then
-        # Calculate the average temperature
-        AVG_TEMP=$(average_temp)
+        # Calculate the median temperature
+        MEDIAN_TEMP=$(median_temp)
 
-        # Check and control fan based on average temperature
-        check_and_control_fan $AVG_TEMP
+        # Check and control fan based on median temperature
+        check_and_control_fan $MEDIAN_TEMP
     fi
 
     sleep 1
