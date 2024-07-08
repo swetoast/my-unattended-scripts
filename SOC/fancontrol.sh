@@ -1,4 +1,5 @@
 #!/bin/bash
+
 # Set your high and medium temperature thresholds in degrees Celsius
 HIGH_THRESHOLD=65
 MEDIUM_THRESHOLD=55
@@ -9,13 +10,26 @@ GPIO_PIN=45
 # Set the spin time in seconds (3 minutes = 180 seconds)
 SPIN_TIME=180
 
+# Set the extended spin time for high speeds (10 minutes = 600 seconds)
+HIGH_SPEED_SPIN_TIME=600
+
 # Set the start and end of the quiet hours (22:00 - 08:00)
 QUIET_HOURS_START=22
-QUIET_HOURS_END=08
+QUIET_HOURS_END=8
 
 # Function to get the temperature
 get_temp() {
     vcgencmd measure_temp | awk -F '[=.]' '{print $2}'
+}
+
+# Function to check if the Raspberry Pi has overheated
+check_overheat() {
+    local throttled=$(vcgencmd get_throttled)
+    if [[ $throttled == *"0x4"* || $throttled == *"0x40000"* ]]; then
+        echo "overheated"
+    else
+        echo "normal"
+    fi
 }
 
 # Function to execute pinctrl command
@@ -52,7 +66,11 @@ control_fan() {
             pinctrl set $GPIO_PIN a1
         fi
         echo "Fan set to $(get_fan_speed) speed."
-        sleep $SPIN_TIME
+        if [[ $(check_overheat) == "overheated" ]]; then
+            sleep $HIGH_SPEED_SPIN_TIME
+        else
+            sleep $SPIN_TIME
+        fi
     fi
 }
 
@@ -79,7 +97,7 @@ check_and_control_fan() {
 
 while true; do
     # Get the current hour
-    CURRENT_HOUR=$(date +%H)
+    CURRENT_HOUR=$(date +%-H)
 
     # If the current hour is within the quiet hours, turn off the fan and sleep until the end of the quiet hours
     if (( CURRENT_HOUR >= QUIET_HOURS_START || CURRENT_HOUR < QUIET_HOURS_END )); then
