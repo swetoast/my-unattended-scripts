@@ -11,12 +11,19 @@ ADJUSTMENT=5
 # Set the reset interval in seconds (1 hour = 3600 seconds)
 RESET_INTERVAL=3600
 
+# Set the history duration
+HISTORY_DURATION=60
+
 # Initialize the temperature history array
 TEMPERATURE_HISTORY=()
 
 # Initialize thresholds
 high_threshold=$DEFAULT_HIGH_THRESHOLD
 medium_threshold=$DEFAULT_MEDIUM_THRESHOLD
+
+# Add two new variables to track the fan's runtime and start count
+FAN_RUNTIME=0
+FAN_START_COUNT=0
 
 # Function to get the temperature
 get_temp() {
@@ -72,6 +79,9 @@ control_fan() {
         else
             sleep $SPIN_TIME
         fi
+        # Update the fan's runtime and start count
+        FAN_RUNTIME=$((FAN_RUNTIME + SPIN_TIME))
+        FAN_START_COUNT=$((FAN_START_COUNT + 1))
     fi
 }
 
@@ -132,6 +142,14 @@ while true; do
             high_threshold=$DEFAULT_HIGH_THRESHOLD
             medium_threshold=$DEFAULT_MEDIUM_THRESHOLD
         fi
+    fi
+
+    # If the current time is 8 AM, print the fan's runtime and start count
+    if [[ $(date +%H) -eq 8 ]]; then
+        echo "Over the past 24 hours, the fan control system was active for a total of $((FAN_RUNTIME / 60)) minutes and was initiated $FAN_START_COUNT times."
+        # Reset the fan's runtime and start count for the next day
+        FAN_RUNTIME=0
+        FAN_START_COUNT=0
     fi
 
     sleep 1
