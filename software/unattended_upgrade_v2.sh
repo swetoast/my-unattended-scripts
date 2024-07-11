@@ -61,7 +61,6 @@ check_reboot_required() {
                  echo "Reboot required!"
                  pushbullet_reboot_message "$(uname -r)"
                fi ;;
-      snap) echo "Snap packages are automatically updated, no reboot check needed." ;;
     esac
   fi
 }
@@ -129,8 +128,6 @@ cleanup_packages() {
       pacman) if command -v paccache >/dev/null 2>&1; then paccache -ruk0 ; fi
               pacman -Sc --noconfirm --needed
               pacman -Scc --noconfirm --needed ;;
-      snap) echo "Snap does not require a cleanup command." ;;
-      flatpak) echo "Flatpak does not require a cleanup command." ;;
     esac
   fi
 }
