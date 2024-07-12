@@ -27,40 +27,16 @@ check_online() {
   done
 }
 
-# Send a message via Pushbullet
-pushbullet_message() {
-  local count=$1 type=$2 packagelist=$3
-  local message="$count pending $type packages will be updated. Here is the package list: $packagelist"
-  local title="The following device will be updated: $(hostname)"
-  curl -u "$pushbullet_token": https://api.pushbullet.com/v2/pushes -d type=note -d title="$title" -d body="$message"
-}
-
-# Send a reboot message via Pushbullet
-pushbullet_reboot_message() {
-  local kernel_version=$1
-  local title="Rebooting $(hostname)"
-  local body="Rebooting $(hostname) after a kernel update to version: $kernel_version"
-  curl -u "$pushbullet_token": https://api.pushbullet.com/v2/pushes -d type=note -d title="$title" -d body="$body"
-}
-
-# Function to check if a reboot is required
-check_reboot_required() {
+# Function to handle package updates
+update_packages() {
   local pkg_manager=$1
+  local update_cmd=$2
 
   if command -v $pkg_manager >/dev/null 2>&1; then
     case $pkg_manager in
-      apt) if [ -f /var/run/reboot-required ]; then
-             echo "Reboot required!"
-             pushbullet_reboot_message "$(uname -r)"
-           fi ;;
-      yum|dnf) if [ -n "$(needs-restarting -r)" ]; then
-                  echo "Reboot required!"
-                  pushbullet_reboot_message "$(uname -r)"
-                fi ;;
-      pacman) if checkupdates+aur | grep -q "^linux "; then
-                 echo "Reboot required!"
-                 pushbullet_reboot_message "$(uname -r)"
-               fi ;;
+      snap) snap refresh ;;
+      flatpak) flatpak update -y ;;
+      *) $update_cmd update ;;
     esac
   fi
 }
@@ -99,20 +75,6 @@ list_packages() {
   fi
 }
 
-# Function to handle package updates
-update_packages() {
-  local pkg_manager=$1
-  local update_cmd=$2
-
-  if command -v $pkg_manager >/dev/null 2>&1; then
-    case $pkg_manager in
-      snap) snap refresh ;;
-      flatpak) flatpak update -y ;;
-      *) $update_cmd update ;;
-    esac
-  fi
-}
-
 # Function to handle package cleanups
 cleanup_packages() {
   local pkg_manager=$1
@@ -128,6 +90,44 @@ cleanup_packages() {
       pacman) if command -v paccache >/dev/null 2>&1; then paccache -ruk0 ; fi
               pacman -Sc --noconfirm --needed
               pacman -Scc --noconfirm --needed ;;
+    esac
+  fi
+}
+
+# Send a message via Pushbullet
+pushbullet_message() {
+  local count=$1 type=$2 packagelist=$3
+  local message="$count pending $type packages will be updated. Here is the package list: $packagelist"
+  local title="The following device will be updated: $(hostname)"
+  curl -u "$pushbullet_token": https://api.pushbullet.com/v2/pushes -d type=note -d title="$title" -d body="$message"
+}
+
+# Send a reboot message via Pushbullet
+pushbullet_reboot_message() {
+  local kernel_version=$1
+  local title="Rebooting $(hostname)"
+  local body="Rebooting $(hostname) after a kernel update to version: $kernel_version"
+  curl -u "$pushbullet_token": https://api.pushbullet.com/v2/pushes -d type=note -d title="$title" -d body="$body"
+}
+
+# Function to check if a reboot is required
+check_reboot_required() {
+  local pkg_manager=$1
+
+  if command -v $pkg_manager >/dev/null 2>&1; then
+    case $pkg_manager in
+      apt) if [ -f /var/run/reboot-required ]; then
+             echo "Reboot required!"
+             pushbullet_reboot_message "$(uname -r)"
+           fi ;;
+      yum|dnf) if [ -n "$(needs-restarting -r)" ]; then
+                  echo "Reboot required!"
+                  pushbullet_reboot_message "$(uname -r)"
+                fi ;;
+      pacman) if checkupdates+aur | grep -q "^linux "; then
+                 echo "Reboot required!"
+                 pushbullet_reboot_message "$(uname -r)"
+               fi ;;
     esac
   fi
 }
