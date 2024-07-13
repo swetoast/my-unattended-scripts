@@ -57,23 +57,31 @@ update_packages() {
   fi
 }
 
-# Function to list packages available for updates
-list_packages() {
+# Function to list packages and install updates
+list_and_install_packages() {
   local pkg_manager=$1
   local count
   local event="List Packages"
-  local pkglist=""
 
   if command -v $pkg_manager >/dev/null 2>&1; then
     case $pkg_manager in
-      apt) pkglist=$(apt list --upgradable 2> /dev/null | awk -F/ 'NR>1 {print $1}')
-           count=$(echo "$pkglist" | wc -l)
-           [ "$count" -gt 0 ] && pushbullet_message "$event" "$count updates available for apt: $pkglist" ;;
-      # Add similar logic for other package managers
+      apt) pkglist=$(apt-get -su --assume-yes dist-upgrade)
+           pending=$(echo "$pkglist" | grep -oE "[0-9]+ upgraded, [0-9]+ newly installed, [0-9]+ to remove and [0-9]+ not upgraded\.")
+           read -r upgraded installed removed _ <<< $(echo "$pending" | grep -oE "[0-9]+" | tr '\n' ' ')
+           count=$(( upgraded + installed + removed ))
+           [ "$count" -gt 0 ] && install_packages $pkg_manager ;;
+      yum|dnf) count=$(yum check-update | wc -l)
+                [ "$count" -gt 0 ] && install_packages $pkg_manager ;;
+      zypper) count=$(zypper list-updates | wc -l)
+               [ "$count" -gt 0 ] && install_packages $pkg_manager ;;
+      pacman) count=$(pacman -Qu | wc -l)
+               [ "$count" -gt 0 ] && install_packages $pkg_manager ;;
+      snap) count=$(snap changes | grep -c "Done.*Refresh snap")
+             [ "$count" -gt 0 ] && install_packages $pkg_manager ;;
+      flatpak) count=$(flatpak remote-ls --updates | wc -l)
+                [ "$count" -gt 0 ] && install_packages $pkg_manager ;;
     esac
   fi
-
-  echo "$pkglist"
 }
 
 # Function to install packages
@@ -143,8 +151,7 @@ check_online
 check_disk_space
 for pkg_manager in "${!pkg_managers[@]}"; do
   update_packages "$pkg_manager" "${pkg_managers[$pkg_manager]}"
-  pkg_list=$(list_packages "$pkg_manager")
-  [ -n "$pkg_list" ] && install_packages "$pkg_manager" "$pkg_list"
+  list_packages "$pkg_manager" 
   cleanup_packages "$pkg_manager"
   check_reboot_required "$pkg_manager"
 done
