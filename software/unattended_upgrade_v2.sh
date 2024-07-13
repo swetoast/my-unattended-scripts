@@ -55,7 +55,6 @@ update_packages() {
 }
 
 # Function to list packages and install updates
-# Function to list packages and install updates
 list_packages() {
   local pkg_manager="$1"
   local count
