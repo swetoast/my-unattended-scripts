@@ -62,10 +62,13 @@ list_packages() {
 
   if command -v "$pkg_manager" >/dev/null 2>&1; then
     case $pkg_manager in
-      apt) pkglist=$(apt-get -su --assume-yes dist-upgrade)
+      apt) packagelist=$(apt list --upgradable | cut -d' ' -f1-2)
+           pkglist=$(apt-get -su --assume-yes dist-upgrade)
            pending=$(echo "$pkglist" | grep -oE "[0-9]+ upgraded, [0-9]+ newly installed, [0-9]+ to remove and [0-9]+ not upgraded\.")
-           read -r upgraded installed removed _ <<< "$(echo "$pending" | grep -oE "[0-9]+" | tr '\n' ' ')"
-           count=$(( upgraded + installed + removed ))
+           upgraded=$(echo "$pending" | grep -oE "[0-9]+ upgraded" | cut -d' ' -f1)
+           installed=$(echo "$pending" | grep -oE "[0-9]+ newly installed" | cut -d' ' -f1)
+           removed=$(echo "$pending" | grep -oE "[0-9]+ to remove" | cut -d' ' -f1)
+           count=$(( $upgraded + $installed + $removed ))
            [ "$count" -gt 0 ] && install_packages "$pkg_manager" ;;
       yum|dnf) count=$(yum check-update | wc -l)
                 [ "$count" -gt 0 ] && install_packages "$pkg_manager" ;;
