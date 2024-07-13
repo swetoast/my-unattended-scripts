@@ -121,14 +121,6 @@ cleanup_packages() {
   fi
 }
 
-# Send a message via Pushbullet
-pushbullet_message() {
-  local event=$1
-  local message=$2
-  local title="$HOSTNAME - $event"
-  curl -u "$pushbullet_token": https://api.pushbullet.com/v2/pushes -d type=note -d title="$title" -d body="$message"
-}
-
 # Function to check if a reboot is required
 check_reboot_required() {
   local pkg_manager=$1
@@ -146,6 +138,14 @@ check_reboot_required() {
   if [ "$reboot_required" = true ]; then
     pushbullet_message "$event" "A reboot is required after an update."
   fi
+}
+
+# Send a message via Pushbullet
+pushbullet_message() {
+  local event=$1
+  local message=$2
+  local title="$HOSTNAME - $event"
+  curl -u "$pushbullet_token": https://api.pushbullet.com/v2/pushes -d type=note -d title="$title" -d body="$message"
 }
 
 # Main script
