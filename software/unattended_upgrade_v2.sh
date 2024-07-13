@@ -58,7 +58,7 @@ update_packages() {
 }
 
 # Function to list packages and install updates
-list_and_install_packages() {
+list_packages() {
   local pkg_manager=$1
   local count
   local event="List Packages"
