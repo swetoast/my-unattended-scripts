@@ -1,4 +1,4 @@
-#!/usr/bin/env sh
+#!/bin/bash
 
 # Define a list of package managers and their corresponding commands
 declare -A pkg_managers=( ["apt"]="apt" ["yum"]="yum" ["dnf"]="dnf" ["zypper"]="zypper" ["pacman"]="pacman" ["snap"]="snap" ["flatpak"]="flatpak" )
@@ -6,17 +6,17 @@ declare -A pkg_managers=( ["apt"]="apt" ["yum"]="yum" ["dnf"]="dnf" ["zypper"]="
 # Load configuration
 config="/opt/etc/unattended_update.conf"
 if [ ! -f "$config" ]; then
-  local event="Error"
+  event="Error"
   pushbullet_message "$event" "No configuration file present at $config"
   exit 0
 fi
-. "$config"
+source "$config"
 
 # Check if script is run as root
 if [ "$(id -u)" != "0" ]; then exec sudo "$0"; fi
 
 # Enable or disable debug mode
-[ "$set_debug" = "enabled" ] && set -x || set +x
+[ "${set_debug:-disabled}" = "enabled" ] && set -x || set +x
 
 # Check online status
 check_online() {
@@ -30,23 +30,21 @@ check_online() {
 
 # Check disk space
 check_disk_space() {
-  local available=$(df / --output=avail -BG | tail -1 | tr -dc '0-9')
+  local available
+  available=$(df / --output=avail -BG | tail -1 | tr -dc '0-9')
   local event="Check Disk Space"
-  if [ "$available" -lt "$disk_space_threshold" ]; then
-    pushbullet_message "$event" "Only $available GB available, which is less than the threshold of $disk_space_threshold GB."
+  if [ "$available" -lt "${disk_space_threshold:-0}" ]; then
+    pushbullet_message "$event" "Only $available GB available, which is less than the threshold of ${disk_space_threshold:-0} GB."
     exit 1
   fi
 }
 
 # Function to handle package updates
 update_packages() {
-  local pkg_manager=$1
-  local update_cmd=$2
+  local pkg_manager="$1"
 
-  if command -v $pkg_manager >/dev/null 2>&1; then
+  if command -v "$pkg_manager" >/dev/null 2>&1; then
     case $pkg_manager in
-      snap) snap refresh ;;
-      flatpak) flatpak update -y ;;
       apt) apt update ;;
       yum) yum check-update ;;
       dnf) dnf check-update ;;
@@ -58,55 +56,56 @@ update_packages() {
 
 # Function to list packages and install updates
 list_packages() {
-  local pkg_manager=$1
+  local pkg_manager="$1"
   local count
   local event="List Packages"
 
-  if command -v $pkg_manager >/dev/null 2>&1; then
+  if command -v "$pkg_manager" >/dev/null 2>&1; then
     case $pkg_manager in
       apt) pkglist=$(apt-get -su --assume-yes dist-upgrade)
            pending=$(echo "$pkglist" | grep -oE "[0-9]+ upgraded, [0-9]+ newly installed, [0-9]+ to remove and [0-9]+ not upgraded\.")
-           read -r upgraded installed removed _ <<< $(echo "$pending" | grep -oE "[0-9]+" | tr '\n' ' ')
+           read -r upgraded installed removed _ <<< "$(echo "$pending" | grep -oE "[0-9]+" | tr '\n' ' ')"
            count=$(( upgraded + installed + removed ))
-           [ "$count" -gt 0 ] && install_packages $pkg_manager ;;
+           [ "$count" -gt 0 ] && install_packages "$pkg_manager" ;;
       yum|dnf) count=$(yum check-update | wc -l)
-                [ "$count" -gt 0 ] && install_packages $pkg_manager ;;
+                [ "$count" -gt 0 ] && install_packages "$pkg_manager" ;;
       zypper) count=$(zypper list-updates | wc -l)
-               [ "$count" -gt 0 ] && install_packages $pkg_manager ;;
+               [ "$count" -gt 0 ] && install_packages "$pkg_manager" ;;
       pacman) count=$(pacman -Qu | wc -l)
-               [ "$count" -gt 0 ] && install_packages $pkg_manager ;;
+               [ "$count" -gt 0 ] && install_packages "$pkg_manager" ;;
       snap) count=$(snap changes | grep -c "Done.*Refresh snap")
-             [ "$count" -gt 0 ] && install_packages $pkg_manager ;;
+             [ "$count" -gt 0 ] && install_packages "$pkg_manager" ;;
       flatpak) count=$(flatpak remote-ls --updates | wc -l)
-                [ "$count" -gt 0 ] && install_packages $pkg_manager ;;
+                [ "$count" -gt 0 ] && install_packages "$pkg_manager" ;;
     esac
   fi
 }
 
 # Function to install packages
 install_packages() {
-  local pkg_manager=$1
-  local pkg_list=$2
+  local pkg_manager="$1"
 
-  if command -v $pkg_manager >/dev/null 2>&1; then
+  if command -v "$pkg_manager" >/dev/null 2>&1; then
     case $pkg_manager in
       apt) apt dist-upgrade -qq -y --assume-yes ;;
       yum|dnf) $pkg_manager upgrade -y ;;
       zypper) zypper up -y ;;
       pacman) pacman -Suuyy --noconfirm --needed --overwrite="*" ;;
+      snap) snap refresh ;;
+      flatpak) flatpak update -y ;;
     esac
   fi
 }
 
 # Function to handle package cleanups
 cleanup_packages() {
-  local pkg_manager=$1
+  local pkg_manager="$1"
 
-  if command -v $pkg_manager >/dev/null 2>&1; then
+  if command -v "$pkg_manager" >/dev/null 2>&1; then
     case $pkg_manager in
       apt) apt autoremove -qq -y
            apt autoclean -qq -y
-           apt -qq -y purge $(dpkg -l | grep "^rc" | awk '{print $2}') ;;
+           apt -qq -y purge "$(dpkg -l | grep "^rc" | awk '{print $2}')" ;;
       yum|dnf) $pkg_manager autoremove -y
                 $pkg_manager clean all ;;
       zypper) zypper clean --all ;;
@@ -114,7 +113,7 @@ cleanup_packages() {
               pacman -Sc --noconfirm --needed
               pacman -Scc --noconfirm --needed ;;
         snap) LANG=en_US.UTF-8 snap list --all | awk '/disabled/{print $1, $3}' |
-              while read snapname revision; do
+              while read -r snapname revision; do
                 snap remove "$snapname" --revision="$revision"
               done ;;
     esac
@@ -123,15 +122,15 @@ cleanup_packages() {
 
 # Function to check if a reboot is required
 check_reboot_required() {
-  local pkg_manager=$1
+  local pkg_manager="$1"
   local event="Reboot required"
   local reboot_required=false
 
-  if command -v $pkg_manager >/dev/null 2>&1; then
+  if command -v "$pkg_manager" >/dev/null 2>&1; then
     case $pkg_manager in
       apt) [ -f /var/run/reboot-required ] && reboot_required=true ;;
       yum|dnf) [ -n "$(needs-restarting -r)" ] && reboot_required=true ;;
-      pacman) checkupdates | grep -q "^linux " && reboot_required=true ;;
+      pacman) uname -r | grep -q -v "$(pacman -Q linux | awk '{print $2}' | cut -d '.' -f 1-2)" && reboot_required=true ;;
     esac
   fi
 
@@ -142,10 +141,10 @@ check_reboot_required() {
 
 # Send a message via Pushbullet
 pushbullet_message() {
-  local event=$1
-  local message=$2
+  local event="$1"
+  local message="$2"
   local title="$HOSTNAME - $event"
-  curl -u "$pushbullet_token": https://api.pushbullet.com/v2/pushes -d type=note -d title="$title" -d body="$message"
+  curl -u "${pushbullet_token:-}": https://api.pushbullet.com/v2/pushes -d type=note -d title="$title" -d body="$message"
 }
 
 # Main script
