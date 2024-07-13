@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Rev 1
 if [ "$(id -u)" != "0" ]; then exec sudo /bin/bash "$0"; fi
-CONFIG=/opt/etc/unattended_update.conf
+CONFIG="/opt/etc/unattended_update.conf"
 
 if [ -f "$CONFIG" ]
     then    echo "Configuration file found at $CONFIG"
@@ -9,44 +9,45 @@ if [ -f "$CONFIG" ]
             exit 0
 fi
 
+# shellcheck source=/dev/null
 . "$CONFIG"
 
 setting_debug_enabled () { set -x; }
 setting_debug_disable () { set +x; }
 
-if [ "$set_debug" = "enabled" ]; then setting_debug_enabled; fi
+if [ "${set_debug:-}" = "enabled" ]; then setting_debug_enabled; fi
 
 function_startup_message () {
-curl -u "$pushbullet_token": https://api.pushbullet.com/v2/pushes -d type=note -d title="Antivirus Scan" -d body="Started a Antivirus Scan on $HOSTNAME on the $(date)"
+curl -u "${pushbullet_token:-}": https://api.pushbullet.com/v2/pushes -d type=note -d title="Antivirus Scan" -d body="Started a Antivirus Scan on $HOSTNAME on the $(date)"
 }
 
 function_notification_message () {
-message="$(for SUMMARY in $(find "$LOGS" -maxdepth 1 -type f -size +1k); do cat "$SUMMARY"; done)"
+message="$(while IFS= read -r -d '' SUMMARY; do cat "$SUMMARY"; done < <(find "$LOGS" -maxdepth 1 -type f -size +1k -print0))"
 title="Here is a summary for HDD Scans from $HOSTNAME"
-curl -u "$pushbullet_token": https://api.pushbullet.com/v2/pushes -d type=note -d title="$title" -d body="$message"
+curl -u "${pushbullet_token:-}": https://api.pushbullet.com/v2/pushes -d type=note -d title="$title" -d body="$message"
 }
 
 function_check_logs () {
-for SUMMARY in $(find "$LOGS" -maxdepth 1 -type f -size +1k); do function_notification_message; done
+while IFS= read -r -d '' SUMMARY; do function_notification_message; done < <(find "$LOGS" -maxdepth 1 -type f -size +1k -print0)
 }
 
 function_clean_logs () {
-mkdir -p $LOGS/antivirus
-mkdir -p $HOME/.infected
-rm $LOGS/antivirus/*
+mkdir -p "$LOGS"/antivirus
+mkdir -p "$HOME"/.infected
+rm "$LOGS"/antivirus/*
 }
 
 function_scan_system () {
-nohup /usr/bin/clamscan --recursive --allmatch --infected --move="$HOME/.infected" --exclude-dir=/proc --exclude-dir=/sys --exclude-dir=/dev --log="$LOGS/antivirus/avscan.log" --max-filesize=4000M --max-scansize=4000M --bytecode=yes /
+nohup /usr/bin/clamscan --recursive --allmatch --infected --move="$HOME"/.infected --exclude-dir=/proc --exclude-dir=/sys --exclude-dir=/dev --log="$LOGS"/antivirus/avscan.log --max-filesize=4000M --max-scansize=4000M --bytecode=yes /
 chown "$USERNAME":users "$LOGS"/antivirus/avscan.log
 }
 
-option="${1}"
+option="${1:-}"
 case ${option} in
    -pre) function_startup_message
          function_clean_logs ;;
+   -post) function_notification_message ;;
       *) function_scan_system ;;
-  -post) function_notification_message ;;
 esac
 
-if [ "$set_debug" = "enabled" ]; then setting_debug_disable; fi
+if [ "${set_debug:-}" = "enabled" ]; then setting_debug_disable; fi
