@@ -27,6 +27,17 @@ check_online() {
   done
 }
 
+# Check disk space
+check_disk_space() {
+  local available=$(df / | tail -1 | awk '{print $4}')
+  available=${available%.*}
+  if [ "$available" -lt "$disk_space_threshold" ]; then
+    echo "Insufficient disk space. Only $available KB available, which is less than the threshold of $disk_space_threshold KB."
+    pushbullet_message "Error: Insufficient disk space" "Only $available KB available, which is less than the threshold of $disk_space_threshold KB."
+    exit 1
+  fi
+}
+
 # Function to handle package updates
 update_packages() {
   local pkg_manager=$1
@@ -36,7 +47,11 @@ update_packages() {
     case $pkg_manager in
       snap) snap refresh ;;
       flatpak) flatpak update -y ;;
-      *) $update_cmd update ;;
+      apt) apt-get update ;;
+      yum) yum check-update ;;
+      dnf) dnf check-update ;;
+      zypper) zypper refresh ;;
+      pacman) pacman -Sy ;;
     esac
   fi
 }
@@ -96,9 +111,8 @@ cleanup_packages() {
 
 # Send a message via Pushbullet
 pushbullet_message() {
-  local count=$1 type=$2 packagelist=$3
-  local message="$count pending $type packages will be updated. Here is the package list: $packagelist"
-  local title="The following device will be updated: $HOSTNAME"
+  local title=$1
+  local message=$2
   curl -u "$pushbullet_token": https://api.pushbullet.com/v2/pushes -d type=note -d title="$title" -d body="$message"
 }
 
@@ -134,6 +148,7 @@ check_reboot_required() {
 
 # Main script
 check_online
+check_disk_space  # Check if there's enough disk space available
 for pkg_manager in "${!pkg_managers[@]}"; do
   update_packages "$pkg_manager" "${pkg_managers[$pkg_manager]}"
   list_packages "$pkg_manager"
