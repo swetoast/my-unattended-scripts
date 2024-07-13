@@ -130,13 +130,17 @@ check_reboot_required() {
     case $pkg_manager in
       apt) [ -f /var/run/reboot-required ] && reboot_required=true ;;
       yum|dnf) [ -n "$(needs-restarting -r)" ] && reboot_required=true ;;
-      pacman) uname -r | grep -q -v "$(pacman -Q linux | awk '{print $2}' | cut -d '.' -f 1-2)" && reboot_required=true ;;
+      pacman) 
+        local kernel_pkg
+        if uname -r | grep -q 'lts'; then kernel_pkg='linux-lts'
+        elif uname -r | grep -q 'zen'; then kernel_pkg='linux-zen'
+        elif uname -r | grep -q 'hardened'; then kernel_pkg='linux-hardened'
+        elif uname -r | grep -q 'rpi'; then kernel_pkg='linux-rpi'
+        else kernel_pkg='linux'; fi
+        [[ $(pacman -Q $kernel_pkg | cut -d " " -f 2) > $(uname -r) ]] && reboot_required=true ;;
     esac
   fi
-
-  if [ "$reboot_required" = true ]; then
-    pushbullet_message "$event" "A reboot is required after an update."
-  fi
+  [ "$reboot_required" = true ] && pushbullet_message "$event" "A reboot is required after an update."
 }
 
 # Send a message via Pushbullet
