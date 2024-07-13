@@ -148,7 +148,7 @@ check_reboot_required() {
 
 # Main script
 check_online
-check_disk_space  # Check if there's enough disk space available
+check_disk_space
 for pkg_manager in "${!pkg_managers[@]}"; do
   update_packages "$pkg_manager" "${pkg_managers[$pkg_manager]}"
   list_packages "$pkg_manager"
