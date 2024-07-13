@@ -130,19 +130,18 @@ pushbullet_message() {
 check_reboot_required() {
   local pkg_manager=$1
   local event="Reboot required"
+  local reboot_required=false
 
   if command -v $pkg_manager >/dev/null 2>&1; then
     case $pkg_manager in
-      apt) if [ -f /var/run/reboot-required ]; then
-             pushbullet_message "$event" "Rebooting after a kernel update to version: $(uname -r)"
-           fi ;;
-      yum|dnf) if [ -n "$(needs-restarting -r)" ]; then
-                  pushbullet_message "$event" "Rebooting after a kernel update to version: $(uname -r)"
-                fi ;;
-      pacman) if checkupdates | grep -q "^linux "; then
-                 pushbullet_message "$event" "Rebooting after a kernel update to version: $(uname -r)"
-               fi ;;
+      apt) [ -f /var/run/reboot-required ] && reboot_required=true ;;
+      yum|dnf) [ -n "$(needs-restarting -r)" ] && reboot_required=true ;;
+      pacman) checkupdates | grep -q "^linux " && reboot_required=true ;;
     esac
+  fi
+
+  if [ "$reboot_required" = true ]; then
+    pushbullet_message "$event" "A reboot is required after an update."
   fi
 }
 
