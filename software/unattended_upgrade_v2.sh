@@ -83,10 +83,10 @@ install_packages() {
 
   if command -v $pkg_manager >/dev/null 2>&1; then
     case $pkg_manager in
-      apt) for pkg in $pkg_list; do
-             apt install -qq -y --assume-yes $pkg
-           done ;;
-      # Add similar logic for other package managers
+      apt) apt dist-upgrade -qq -y --assume-yes ;;
+      yum|dnf) $pkg_manager upgrade -y ;;
+      zypper) zypper up -y ;;
+      pacman) pacman -Suuyy --noconfirm --needed --overwrite="*" ;;
     esac
   fi
 }
