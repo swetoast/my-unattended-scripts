@@ -1,38 +1,39 @@
 #!/bin/bash
 
-# Set your maximum, high and medium temperature thresholds in degrees Celsius
-MAX_THRESHOLD=80
-DEFAULT_HIGH_THRESHOLD=65
-DEFAULT_MEDIUM_THRESHOLD=55
+# Set your high and medium temperature thresholds in degrees Celsius
+HIGH_THRESHOLD=65
+MEDIUM_THRESHOLD=55
 
-# Set the adjustment value
-ADJUSTMENT=5
+# Set your GPIO pin connected to the fan
+GPIO_PIN=45
 
-# Set the reset interval in seconds (1 hour = 3600 seconds)
-RESET_INTERVAL=3600
+# Set the spin time in seconds (3 minutes = 180 seconds)
+SPIN_TIME=180
 
-# Set the history duration
+# Set the extended spin time for high speeds (10 minutes = 600 seconds)
+HIGH_SPEED_SPIN_TIME=600
+
+# Set the start and end of the quiet hours (22:00 - 08:00)
+QUIET_HOURS_START=22
+QUIET_HOURS_END=8
+
+# Define the duration for which temperature data is stored (in seconds)
 HISTORY_DURATION=60
 
 # Initialize the temperature history array
 TEMPERATURE_HISTORY=()
 
-# Initialize thresholds
-high_threshold=$DEFAULT_HIGH_THRESHOLD
-medium_threshold=$DEFAULT_MEDIUM_THRESHOLD
-
-# Add two new variables to track the fan's runtime and start count
-FAN_RUNTIME=0
-FAN_START_COUNT=0
-
 # Function to get the temperature
 get_temp() {
-    vcgencmd measure_temp | awk -F '[=.]' '{print $2}'
+    local temp
+    temp=$(vcgencmd measure_temp | awk -F '[=.]' '{print $2}')
+    echo "$temp"
 }
 
 # Function to check if the Raspberry Pi has overheated
 check_overheat() {
-    local throttled=$(vcgencmd get_throttled)
+    local throttled
+    throttled=$(vcgencmd get_throttled)
     if [[ $throttled == *"0x4"* || $throttled == *"0x40000"* ]]; then
         echo "overheated"
     else
@@ -42,12 +43,13 @@ check_overheat() {
 
 # Function to execute pinctrl command
 pinctrl_cmd() {
-    pinctrl $@
+    pinctrl "$@"
 }
 
 # Function to get the fan speed
 get_fan_speed() {
-    local speed=$(pinctrl get $GPIO_PIN | grep -oE "(lo|hi)")
+    local speed
+    speed=$(pinctrl get "$GPIO_PIN" | grep -oE "(lo|hi)")
     if [[ $speed == "hi" ]]; then
         echo "high"  # Fan is running at high speed
     elif [[ $speed == "lo" ]]; then
@@ -57,99 +59,104 @@ get_fan_speed() {
 
 # Function to get the fan state
 get_fan_state() {
-    pinctrl_cmd lev $GPIO_PIN
+    pinctrl_cmd lev "$GPIO_PIN"
 }
 
 # Function to control the fan
 control_fan() {
     local state=$1
     local speed=$2
-    local fan_state=$(get_fan_state)
-    local fan_speed=$(get_fan_speed)
-    if [[ $fan_state != $state || $fan_speed != $speed ]]; then
-        pinctrl set $GPIO_PIN op dl
+    local fan_state
+    fan_state=$(get_fan_state)
+    local fan_speed
+    fan_speed=$(get_fan_speed)
+    if [[ "$fan_state" != "$state" || "$fan_speed" != "$speed" ]]; then
+        pinctrl set "$GPIO_PIN" op dl
         if [[ $speed == "high" ]]; then
-            pinctrl set $GPIO_PIN a2
+            pinctrl set "$GPIO_PIN" a2
         elif [[ $speed == "low" ]]; then
-            pinctrl set $GPIO_PIN a1
+            pinctrl set "$GPIO_PIN" a1
         fi
         echo "Fan set to $(get_fan_speed) speed."
         if [[ $(check_overheat) == "overheated" ]]; then
-            sleep $HIGH_SPEED_SPIN_TIME
+            sleep "$HIGH_SPEED_SPIN_TIME"
         else
-            sleep $SPIN_TIME
+            sleep "$SPIN_TIME"
         fi
-        # Update the fan's runtime and start count
-        FAN_RUNTIME=$((FAN_RUNTIME + SPIN_TIME))
-        FAN_START_COUNT=$((FAN_START_COUNT + 1))
     fi
 }
 
 # Function to turn off the fan
 turn_off_fan() {
-    local fan_state=$(get_fan_state)
+    local fan_state
+    fan_state=$(get_fan_state)
     if [[ $fan_state == "0" ]]; then
-        pinctrl_cmd set $GPIO_PIN op dh
+        pinctrl_cmd set "$GPIO_PIN" op dh
         echo "Fan turned off."
     fi
 }
 
+# Function to check and control fan based on temperature
+check_and_control_fan() {
+    local temp=$1
+    if [[ $(check_overheat) == "overheated" ]]; then
+        control_fan "on" "high"
+    elif (( temp > HIGH_THRESHOLD )); then
+        control_fan "on" "high"
+    elif (( temp > MEDIUM_THRESHOLD )); then
+        control_fan "on" "low"
+    else
+        turn_off_fan
+    fi
+}
+
+# Function to update the temperature history
+update_temp_history() {
+    local temp=$1
+    if [ ${#TEMPERATURE_HISTORY[@]} -ge $HISTORY_DURATION ]; then
+        TEMPERATURE_HISTORY=("${TEMPERATURE_HISTORY[@]:1}") # Remove the oldest temperature
+    fi
+    TEMPERATURE_HISTORY+=("$temp") # Add the new temperature to the end of the array
+}
+
 # Function to calculate the median temperature
 median_temp() {
-    local temps=($(printf '%d\n' "${TEMPERATURE_HISTORY[@]}" | sort -n))
+    local temps
+    read -a temps <<< "$(printf '%d\n' "${TEMPERATURE_HISTORY[@]}" | sort -n)"
     local count=${#temps[@]}
     if (( count % 2 == 0 )); then
+        # If there are an even number of temperatures, the median is the average of the two middle values
         echo $(( (temps[count/2] + temps[count/2 - 1]) / 2 ))
     else
-        echo ${temps[count/2]}
+        # If there are an odd number of temperatures, the median is the middle value
+        echo "${temps[count/2]}"
     fi
 }
 
 while true; do
-    # Get the current temperature
+    # Get the current hour
+    CURRENT_HOUR=$(date +%-H)
+
+    # If the current hour is within the quiet hours, turn off the fan and sleep until the end of the quiet hours
+    if (( CURRENT_HOUR >= QUIET_HOURS_START || CURRENT_HOUR < QUIET_HOURS_END )); then
+        turn_off_fan
+        sleep $(( (24 + QUIET_HOURS_END - CURRENT_HOUR) % 24 * 3600 ))
+        continue
+    fi
+
+    # Get the temperature in degrees Celsius
     TEMP=$(get_temp)
 
     # Update the temperature history
-    TEMPERATURE_HISTORY+=("$TEMP")
+    update_temp_history "$TEMP"
 
     # If the temperature history array has reached its maximum size
     if [ ${#TEMPERATURE_HISTORY[@]} -ge $HISTORY_DURATION ]; then
         # Calculate the median temperature
         MEDIAN_TEMP=$(median_temp)
 
-        # Adjust thresholds based on median temperature
-        if (( MEDIAN_TEMP > high_threshold && high_threshold < MAX_THRESHOLD )); then
-            high_threshold=$((high_threshold + ADJUSTMENT))
-        elif (( MEDIAN_TEMP < high_threshold )); then
-            high_threshold=$((high_threshold - ADJUSTMENT))
-        fi
-
-        if (( MEDIAN_TEMP > medium_threshold && medium_threshold < MAX_THRESHOLD )); then
-            medium_threshold=$((medium_threshold + ADJUSTMENT))
-        elif (( MEDIAN_TEMP < medium_threshold )); then
-            medium_threshold=$((medium_threshold - ADJUSTMENT))
-        fi
-
-        # Ensure thresholds do not exceed maximum
-        high_threshold=$(( high_threshold > MAX_THRESHOLD ? MAX_THRESHOLD : high_threshold ))
-        medium_threshold=$(( medium_threshold > MAX_THRESHOLD ? MAX_THRESHOLD : medium_threshold ))
-
-        # Check and control fan based on new thresholds
-        check_and_control_fan $MEDIAN_TEMP $high_threshold $medium_threshold
-
-        # Reset thresholds after a certain interval
-        if (( SECONDS % RESET_INTERVAL == 0 )); then
-            high_threshold=$DEFAULT_HIGH_THRESHOLD
-            medium_threshold=$DEFAULT_MEDIUM_THRESHOLD
-        fi
-    fi
-
-    # If the current time is 8 AM, print the fan's runtime and start count
-    if [[ $(date +%H) -eq 8 ]]; then
-        echo "Over the past 24 hours, the fan control system was active for a total of $((FAN_RUNTIME / 60)) minutes and was initiated $FAN_START_COUNT times."
-        # Reset the fan's runtime and start count for the next day
-        FAN_RUNTIME=0
-        FAN_START_COUNT=0
+        # Check and control fan based on median temperature
+        check_and_control_fan "$MEDIAN_TEMP"
     fi
 
     sleep 1
