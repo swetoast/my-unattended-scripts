@@ -113,6 +113,10 @@ cleanup_packages() {
       pacman) if command -v paccache >/dev/null 2>&1; then paccache -ruk0 ; fi
               pacman -Sc --noconfirm --needed
               pacman -Scc --noconfirm --needed ;;
+        snap) LANG=en_US.UTF-8 snap list --all | awk '/disabled/{print $1, $3}' |
+              while read snapname revision; do
+                snap remove "$snapname" --revision="$revision"
+              done ;;
     esac
   fi
 }
