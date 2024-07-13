@@ -54,22 +54,22 @@ list_packages() {
            read -r upgraded installed removed _ <<< $(echo "$pending" | grep -oE "[0-9]+" | tr '\n' ' ')
            count=$(( upgraded + installed + removed ))
            echo "$count updates available"
-           pushbullet_message "$count" "apt" "$pkglist" ;;
+           [ "$count" -gt 0 ] && pushbullet_message "$count" "apt" "$pkglist" ;;
       yum|dnf) count=$(yum check-update | wc -l)
                 echo "$count updates available"
-                pushbullet_message "$count" "$pkg_manager" "$(yum check-update)" ;;
+                [ "$count" -gt 0 ] && pushbullet_message "$count" "$pkg_manager" "$(yum check-update)" ;;
       zypper) count=$(zypper list-updates | wc -l)
                echo "$count updates available"
-               pushbullet_message "$count" "zypper" "$(zypper list-updates)" ;;
+               [ "$count" -gt 0 ] && pushbullet_message "$count" "zypper" "$(zypper list-updates)" ;;
       pacman) count=$(pacman -Qu | wc -l)
                echo "$count updates available"
-               pushbullet_message "$count" "pacman" "$(pacman -Qu)" ;;
-      snap) count=$(snap refresh --list | wc -l)
+               [ "$count" -gt 0 ] && pushbullet_message "$count" "pacman" "$(pacman -Qu)" ;;
+      snap) count=$(snap changes | grep -c "Done.*Refresh snap")
              echo "$count updates available"
-             pushbullet_message "$count" "snap" "$(snap refresh --list)" ;;
-      flatpak) count=$(flatpak update -d | wc -l)
+             [ "$count" -gt 0 ] && pushbullet_message "$count" "snap" "$(snap changes)" ;;
+      flatpak) count=$(flatpak remote-ls --updates | wc -l)
                 echo "$count updates available"
-                pushbullet_message "$count" "flatpak" "$(flatpak update -d)" ;;
+                [ "$count" -gt 0 ] && pushbullet_message "$count" "flatpak" "$(flatpak remote-ls --updates)" ;;
     esac
     echo
   fi
@@ -98,15 +98,15 @@ cleanup_packages() {
 pushbullet_message() {
   local count=$1 type=$2 packagelist=$3
   local message="$count pending $type packages will be updated. Here is the package list: $packagelist"
-  local title="The following device will be updated: $(hostname)"
+  local title="The following device will be updated: $HOSTNAME"
   curl -u "$pushbullet_token": https://api.pushbullet.com/v2/pushes -d type=note -d title="$title" -d body="$message"
 }
 
 # Send a reboot message via Pushbullet
 pushbullet_reboot_message() {
   local kernel_version=$1
-  local title="Rebooting $(hostname)"
-  local body="Rebooting $(hostname) after a kernel update to version: $kernel_version"
+  local title="Rebooting $HOSTNAME"
+  local body="Rebooting $HOSTNAME after a kernel update to version: $kernel_version"
   curl -u "$pushbullet_token": https://api.pushbullet.com/v2/pushes -d type=note -d title="$title" -d body="$body"
 }
 
@@ -124,7 +124,7 @@ check_reboot_required() {
                   echo "Reboot required!"
                   pushbullet_reboot_message "$(uname -r)"
                 fi ;;
-      pacman) if checkupdates+aur | grep -q "^linux "; then
+      pacman) if checkupdates | grep -q "^linux "; then
                  echo "Reboot required!"
                  pushbullet_reboot_message "$(uname -r)"
                fi ;;
