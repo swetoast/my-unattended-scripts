@@ -30,11 +30,10 @@ check_online() {
 
 # Check disk space
 check_disk_space() {
-  local available=$(df / | tail -1 | awk '{print $4}')
-  available=${available%.*}
+  local available=$(df / --output=avail -BG | tail -1 | tr -dc '0-9')
   local event="Check Disk Space"
   if [ "$available" -lt "$disk_space_threshold" ]; then
-    pushbullet_message "$event" "Only $available KB available, which is less than the threshold of $disk_space_threshold KB."
+    pushbullet_message "$event" "Only $available GB available, which is less than the threshold of $disk_space_threshold GB."
     exit 1
   fi
 }
