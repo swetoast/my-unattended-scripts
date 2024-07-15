@@ -60,49 +60,37 @@ list_packages() {
   local count
   local event="List Packages"
   local message=""
-
+  local packagelist=""
+  
   if command -v "$pkg_manager" >/dev/null 2>&1; then
     case $pkg_manager in
-      apt) pkglist=$(apt-get -su --assume-yes dist-upgrade)
-           pending=$(echo "$pkglist" | grep -oE "[0-9]+ upgraded, [0-9]+ newly installed, [0-9]+ to remove and [0-9]+ not upgraded\.")
+      apt) packagelist=$(apt-get -su --assume-yes dist-upgrade | grep "^Inst" | awk -F " " '{print $2}')
+           pending=$(echo "$packagelist" | grep -oE "[0-9]+ upgraded, [0-9]+ newly installed, [0-9]+ to remove and [0-9]+ not upgraded\.")
            read -r upgraded installed removed _ <<< "$(echo "$pending" | grep -oE "[0-9]+" | tr '\n' ' ')"
            count=$(( upgraded + installed + removed ))
-           if [ "$count" -gt 0 ]; then
-             message+="\nThere are $count packages to be installed."
-             echo "$message"
-             install_packages "$pkg_manager"
-           fi ;;
-      yum|dnf) count=$(yum check-update | wc -l)
-                if [ "$count" -gt 0 ]; then
-                  message+="\nThere are $count packages to be installed."
-                  echo "$message"
-                  install_packages "$pkg_manager"
-                fi ;;
-      zypper) count=$(zypper list-updates | wc -l)
-               if [ "$count" -gt 0 ]; then
-                 message+="\nThere are $count packages to be installed."
-                 echo "$message"
-                 install_packages "$pkg_manager"
-               fi ;;
-      pacman) count=$(pacman -Qu | wc -l)
-               if [ "$count" -gt 0 ]; then
-                 message+="\nThere are $count packages to be installed."
-                 echo "$message"
-                 install_packages "$pkg_manager"
-               fi ;;
-      snap) count=$(snap changes | grep -c "Done.*Refresh snap")
-             if [ "$count" -gt 0 ]; then
-               message+="\nThere are $count packages to be installed."
-               echo "$message"
-               install_packages "$pkg_manager"
-             fi ;;
-      flatpak) count=$(flatpak remote-ls --updates | wc -l)
-                if [ "$count" -gt 0 ]; then
-                  message+="\nThere are $count packages to be installed."
-                  echo "$message"
-                  install_packages "$pkg_manager"
-                fi ;;
+           ;;
+      yum|dnf) packagelist=$(yum check-update | awk 'NR>1 {print $1}')
+                count=$(echo "$packagelist" | wc -l)
+                ;;
+      zypper) packagelist=$(zypper list-updates | awk 'NR>3 {print $3}')
+               count=$(echo "$packagelist" | wc -l)
+               ;;
+      pacman) packagelist=$(pacman -Qu | awk '{print $1}')
+               count=$(echo "$packagelist" | wc -l)
+               ;;
+      snap) packagelist=$(snap changes | grep -c "Done.*Refresh snap")
+             count=$(echo "$packagelist" | wc -l)
+             ;;
+      flatpak) packagelist=$(flatpak remote-ls --updates)
+                count=$(echo "$packagelist" | wc -l)
+                ;;
     esac
+
+    if [ "$count" -gt 0 ]; then
+      message+="\nThere are $count packages to be installed: $packagelist"
+      pushbullet_message "$event" "$message"
+      install_packages "$pkg_manager"
+    fi
   fi
 }
 
