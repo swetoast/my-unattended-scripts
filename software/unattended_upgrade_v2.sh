@@ -75,7 +75,7 @@ list_packages() {
       zypper) packagelist=$(zypper list-updates | awk 'NR>3 {print $3}')
                count=$(echo "$packagelist" | wc -l)
                ;;
-      pacman) packagelist=$(pacman -Qu)
+      pacman) packagelist=$(pacman -Qu | awk '{print $1}')
                count=$(echo "$packagelist" | wc -l)
                ;;
       snap) packagelist=$(snap changes | grep -c "Done.*Refresh snap")
@@ -87,7 +87,7 @@ list_packages() {
     esac
 
     if [ "$count" -gt 0 ]; then
-      message+="There are $count packages to be installed: $packagelist"
+      message+="\nThere are $count packages to be installed: $packagelist"
       pushbullet_message "$event" "$message"
       install_packages "$pkg_manager"
     fi
