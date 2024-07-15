@@ -54,65 +54,55 @@ update_packages() {
   fi
 }
 
-# Function to list packages and install updates
+# Function to list package updates and start installation
 list_packages() {
   local pkg_manager="$1"
   local count
   local event="List Packages"
-  local packagetype
   local message=""
 
   if command -v "$pkg_manager" >/dev/null 2>&1; then
     case $pkg_manager in
-      apt) packagetype="deb"
-           packagelist=$(apt list --upgradable | cut -d' ' -f1-2)
-           pkglist=$(apt-get -su --assume-yes dist-upgrade)
+      apt) pkglist=$(apt-get -su --assume-yes dist-upgrade)
            pending=$(echo "$pkglist" | grep -oE "[0-9]+ upgraded, [0-9]+ newly installed, [0-9]+ to remove and [0-9]+ not upgraded\.")
-           upgraded=$(echo "$pending" | grep -oE "[0-9]+ upgraded" | cut -d' ' -f1)
-           installed=$(echo "$pending" | grep -oE "[0-9]+ newly installed" | cut -d' ' -f1)
-           removed=$(echo "$pending" | grep -oE "[0-9]+ to remove" | cut -d' ' -f1)
-           count=$(( $upgraded + $installed + $removed ))
+           read -r upgraded installed removed _ <<< "$(echo "$pending" | grep -oE "[0-9]+" | tr '\n' ' ')"
+           count=$(( upgraded + installed + removed ))
            if [ "$count" -gt 0 ]; then
-             message+="\nThere are $count $packagetype packages to be installed: $packagelist"
+             message+="\nThere are $count packages to be installed."
+             echo "$message"
+             install_packages "$pkg_manager"
            fi ;;
-      yum|dnf) packagetype="rpm"
-                packagelist=$(yum check-update)
-                count=$(echo "$packagelist" | wc -l)
+      yum|dnf) count=$(yum check-update | wc -l)
                 if [ "$count" -gt 0 ]; then
-                  message+="\nThere are $count $packagetype packages to be installed: $packagelist"
+                  message+="\nThere are $count packages to be installed."
+                  echo "$message"
+                  install_packages "$pkg_manager"
                 fi ;;
-      zypper) packagetype="rpm"
-               packagelist=$(zypper list-updates)
-               count=$(echo "$packagelist" | wc -l)
+      zypper) count=$(zypper list-updates | wc -l)
                if [ "$count" -gt 0 ]; then
-                 message+="\nThere are $count $packagetype packages to be installed: $packagelist"
+                 message+="\nThere are $count packages to be installed."
+                 echo "$message"
+                 install_packages "$pkg_manager"
                fi ;;
-      pacman) packagetype="pkg.tar.xz"
-              packagelist=$(pacman -Qu)
-              pending=$(echo "$(pacman -Qu | wc -l) updates available")
-              count=$(pacman -Qu | wc -l)
-              if [ "$count" -gt 0 ]; then
-                message+="\nThere are $count $packagetype packages to be installed: $packagelist"
-              fi ;;
-      snap) packagetype="snap"
-            packagelist=$(snap refresh --list)
-            pending=$(echo "$(snap refresh --list) updates available")
-            count=$(snap refresh --list | wc -l)
-            if [ "$count" -gt 0 ]; then
-              message+="\nThere are $count $packagetype packages to be installed: $packagelist"
-            fi ;;
-      flatpak) packagetype="flatpak"
-                packagelist=$(flatpak remote-ls --updates)
-                count=$(echo "$packagelist" | wc -l)
+      pacman) count=$(pacman -Qu | wc -l)
+               if [ "$count" -gt 0 ]; then
+                 message+="\nThere are $count packages to be installed."
+                 echo "$message"
+                 install_packages "$pkg_manager"
+               fi ;;
+      snap) count=$(snap changes | grep -c "Done.*Refresh snap")
+             if [ "$count" -gt 0 ]; then
+               message+="\nThere are $count packages to be installed."
+               echo "$message"
+               install_packages "$pkg_manager"
+             fi ;;
+      flatpak) count=$(flatpak remote-ls --updates | wc -l)
                 if [ "$count" -gt 0 ]; then
-                  message+="\nThere are $count $packagetype packages to be installed: $packagelist"
+                  message+="\nThere are $count packages to be installed."
+                  echo "$message"
+                  install_packages "$pkg_manager"
                 fi ;;
     esac
-  fi
-
-  # Send the message if it's not empty
-  if [ -n "$message" ]; then
-    pushbullet_message "$event" "$message"
   fi
 }
 
