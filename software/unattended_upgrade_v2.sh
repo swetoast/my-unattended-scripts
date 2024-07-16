@@ -64,7 +64,7 @@ list_packages() {
   
   if command -v "$pkg_manager" >/dev/null 2>&1; then
     case $pkg_manager in
-      apt) packagelist=$(apt list --upgradable 2>/dev/null | sed '1d' | while IFS= read -r line; do package=$(echo "$line" | cut -d'/' -f 1); current_version=$(echo "$line" | cut -d' ' -f 4 | cut -d':' -f 2); new_version=$(echo "$line" | cut -d' ' -f 5); echo "$package $current_version > $new_version"; done)
+      apt) packagelist=$(apt list --upgradable 2>/dev/null | awk -F'[: /]' 'NR>2 {print $2, $4, ">", $5}')
            packagetype="apt"
            count=$(echo "$packagelist" | wc -l)
             ;;
