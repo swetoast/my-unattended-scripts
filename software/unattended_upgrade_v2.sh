@@ -136,8 +136,7 @@ cleanup_packages() {
     esac
   fi
 }
-
-# Function to check if a reboot is required
+# Function to check if a reboot is required and reboot if necessary
 check_reboot_required() {
   local pkg_manager="$1"
   local event="Reboot required"
@@ -157,7 +156,12 @@ check_reboot_required() {
         [[ $(pacman -Q $kernel_pkg | cut -d " " -f 2) > $(uname -r) ]] && reboot_required=true ;;
     esac
   fi
-  [ "$reboot_required" = true ] && pushbullet_message "$event" "A reboot is required after an update."
+  if [ "$reboot_required" = true ]; then
+    pushbullet_message "$event" "A reboot is required after an update."
+    if [ "${reboot_after_update:-false}" = true ]; then
+      sync; sleep 60; reboot
+    fi
+  fi
 }
 
 # Send a message via Pushbullet
