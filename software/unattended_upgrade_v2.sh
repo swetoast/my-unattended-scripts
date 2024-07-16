@@ -65,7 +65,7 @@ list_packages() {
   if command -v "$pkg_manager" >/dev/null 2>&1; then
     case $pkg_manager in
       apt) packagelist=$(apt list --upgradable 2>/dev/null | awk -F'[: /]' 'NR>2 {print $2, $4, ">", $5}')
-           packagetype=$(apt)
+           packagetype=$(echo apt)
            count=$(echo "$packagelist" | wc -l)
             ;;
       yum|dnf) packagelist=$(yum -q check-update | sed '/^$/d')
