@@ -80,7 +80,7 @@ list_packages() {
               packagetype=$(echo pkg)
               count=$(echo "$packagelist" | wc -l)
                ;;
-      snap) packagelist=$(snap refresh --list 2>&1 | grep -v 'All snaps up to date.' > /dev/null")
+      snap) packagelist=$(snap) packagelist=$(snap refresh --list 2>&1 | grep -v 'All snaps up to date.')
             packagetype=$(echo snap)
             count=$(echo "$packagelist" | wc -l)
              ;;
@@ -129,7 +129,7 @@ cleanup_packages() {
       pacman) if command -v paccache >/dev/null 2>&1; then paccache -ruk0 ; fi
               pacman -Sc --noconfirm --needed
               pacman -Scc --noconfirm --needed ;;
-        snap) LANG=en_US.UTF-8 snap list --all | awk '/disabled/{print $1, $3}' |
+        snap) snap list --all | awk '/disabled/{print $1, $3}' |
               while read -r snapname revision; do
                 snap remove "$snapname" --revision="$revision"
               done ;;
