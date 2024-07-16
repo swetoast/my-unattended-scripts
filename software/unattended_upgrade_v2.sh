@@ -63,10 +63,11 @@ list_packages() {
   local packagelist=""
   
   if command -v "$pkg_manager" >/dev/null 2>&1; then
-          apt) packagelist=$(apt list --upgradable 2>/dev/null | sed '1d' | while IFS= read -r line; do package=$(echo $line | cut -d'/' -f 1) current_version=$(echo $line | cut -d' ' -f 4 | cut -d':' -f 2) new_version=$(echo $line | cut -d' ' -f 5) echo "$package $current_version > $new_version" done)
-               packagetype="apt"
-               count=$(echo "$packagelist" | wc -l)
-                ;;
+    case $pkg_manager in
+      apt) packagelist=$(apt list --upgradable 2>/dev/null | sed '1d' | while IFS= read -r line; do package=$(echo $line | cut -d'/' -f 1) current_version=$(echo $line | cut -d' ' -f 4 | cut -d':' -f 2) new_version=$(echo $line | cut -d' ' -f 5) echo "$package $current_version > $new_version" done)
+           packagetype="apt"
+           count=$(echo "$packagelist" | wc -l)
+            ;;
       yum|dnf) packagelist=$(yum check-update | awk 'NR>1 {print $1}')
                packagetype=$(echo rpm)
                count=$(echo "$packagelist" | wc -l)
