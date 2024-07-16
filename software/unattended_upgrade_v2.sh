@@ -93,7 +93,7 @@ list_packages() {
     esac
 
     if [ "$count" -gt 0 ]; then
-      message+="There are $count $packagetyp packages to be installed: $packagelist"
+      message+="There are $count $packagetype packages to be installed: $packagelist"
       pushbullet_message "$event" "$message"
       install_packages "$pkg_manager"
     fi
