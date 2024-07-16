@@ -64,9 +64,7 @@ list_packages() {
   
   if command -v "$pkg_manager" >/dev/null 2>&1; then
     case $pkg_manager in
-      apt) packagelist=$(apt-get -su --assume-yes dist-upgrade | grep "^Inst" | awk -F " " '{print $2}')
-           pending=$(echo "$packagelist" | grep -oE "[0-9]+ upgraded, [0-9]+ newly installed, [0-9]+ to remove and [0-9]+ not upgraded\.")
-           read -r upgraded installed removed _ <<< "$(echo "$pending" | grep -oE "[0-9]+" | tr '\n' ' ')"
+      apt) packagelist=$(apt list --upgradable 2>/dev/null | sed '1d' | while IFS= read -r line; do package=$(echo $line | cut -d'/' -f 1); current_version=$(echo $line | cut -d' ' -f 4 | cut -d':' -f 2); new_version=$(echo $line | cut -d' ' -f 5); echo "$package $current_version > $new_version"; done)
            packagetype=$(echo apt)
            count=$(( upgraded + installed + removed ))
            ;;
