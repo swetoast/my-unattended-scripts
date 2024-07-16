@@ -68,7 +68,7 @@ list_packages() {
            packagetype="apt"
            count=$(echo "$packagelist" | wc -l)
             ;;
-      yum|dnf) packagelist=$(sudo yum -q check-update | sed '/^$/d')
+      yum|dnf) packagelist=$(yum -q check-update | sed '/^$/d')
                packagetype=$(echo rpm)
                count=$(echo "$packagelist" | wc -l)
                 ;;
