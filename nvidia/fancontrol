@@ -19,28 +19,28 @@ source "$CONFIG"
 
 # Functions
 notify() {
-    local message="Current Temp: $(gpustat | grep -oE '[0-9]{2}.C')"
-    local title="Heat Warning on Nvidia Card"
+    local message="Heat Warning on Nvidia Card"
+    local title="Average Temp over last 60 seconds: $1"
     curl -u "$pushbullet_token": https://api.pushbullet.com/v2/pushes -d type=note -d title="$title" -d body="$message"
 }
 
 set_fan_speed() {
-    local temp=$(gpustat | grep -oE '[0-9]{2}.C' | grep -oE '[0-9]{2}')
+    local temp=$1
     local speed=22
     case $temp in
-        3[0-9]) speed=25 ;;
-        4[0-9]) speed=30 ;;
-        5[0-9]) speed=50 ;;
-        6[0-9]) speed=60 ;;
-        7[0-9]) speed=80 ;;
-        8[0-9]) speed=100; notify ;;
+        [30-39]) speed=25 ;;
+        [40-49]) speed=30 ;;
+        [50-59]) speed=50 ;;
+        [60-69]) speed=60 ;;
+        [70-79]) speed=80 ;;
+        [80-89]) speed=100; notify $temp ;;
     esac
     DISPLAY=:0 XAUTHORITY=/var/run/lightdm/root/:0 /usr/bin/nvidia-settings -a "[fan:0]/GPUTargetFanSpeed=$speed"
+    echo $speed
 }
 
-store_last_value() {
-    GPUTEMP=$(gpustat | grep -oE '[0-9]{2}.C' | grep -oE '[0-9]{2}')
-    export GPUTEMP
+get_temp() {
+    echo $(gpustat | grep -oE '[0-9]{2}.C' | grep -oE '[0-9]{2}')
 }
 
 initialize() {
@@ -51,20 +51,18 @@ initialize() {
     sleep 5
     export DISPLAY=:0
     DISPLAY=:0 XAUTHORITY=/var/run/lightdm/root/:0 /usr/bin/nvidia-settings -a "[gpu:0]/GPUFanControlState=1"
-    store_last_value
 }
 
 control_fan_speed() {
     while true; do
-        if [ "$(gpustat | grep -oE '[0-9]{2}.C' | grep -oE '[0-9]{2}')" -eq "$GPUTEMP" ]; then
-            store_last_value
-            sleep 60
-        else
-            set_fan_speed
-            store_last_value
-            echo "  Fan speed changed, temperature: $(gpustat | grep -oE '[0-9]{2}.C')"
-            sleep 60
-        fi
+        temp_array=()
+        for i in {1..60}; do
+            temp_array+=("$(get_temp)")
+            sleep 1
+        done
+        avg_temp=$(printf "%s\\n" "${temp_array[@]}" | awk '{s+=$1} END {print int(s/NR)}')
+        fan_speed=$(set_fan_speed $avg_temp)
+        echo "Fan speed changed to $fan_speed%, average temperature over last 60 seconds: $avg_temp"
     done
 }
 
