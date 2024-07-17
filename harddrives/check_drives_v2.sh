@@ -55,13 +55,13 @@ clean_system_logs() {
 check_drives() {
     mkdir -p "$LOGS"/blocks
     mkdir -p "$LOGS"/smart
-    run_"$PREFAPP"
+    run_disk_check_tool "$PREFAPP" blocks
     run_smartctl
 }
 
 # Function to run disk check tools
 run_disk_check_tool() {
-    local tool=$PREFAPP
+    local tool=$1
     local log_dir=$2
     if command -v "$tool" &> /dev/null; then
         for DEVICE in /dev/sd* /dev/nvme* /dev/mmcblk*; do
