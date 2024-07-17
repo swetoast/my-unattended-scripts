@@ -84,7 +84,7 @@ list_packages() {
             packagetype=$(echo snap)
             count=$(echo "$packagelist" | wc -l)
              ;;
-      flatpak) packagelist=$(flatpak remote-ls --updates)
+      flatpak) packagelist=$(flatpak remote-ls --updates | awk 'NR>1 {print "App Name: "$2", Version: "$3}')
                packagetype=$(echo flatpak)
                count=$(echo "$packagelist" | wc -l)
                 ;;
