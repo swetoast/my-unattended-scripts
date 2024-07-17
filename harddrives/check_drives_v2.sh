@@ -9,7 +9,7 @@ if [ "$(id -u)" != "0" ]; then exec sudo /bin/bash "$0"; fi
 
 # Check if configuration file exists
 if [ ! -f "$CONFIG" ]; then
-    send_message "No configuration file present at $CONFIG"
+    echo "No configuration file present at $CONFIG"
     exit 0
 fi
 
