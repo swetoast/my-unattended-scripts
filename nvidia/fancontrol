@@ -50,7 +50,7 @@ initialize() {
     X :0 &
     sleep 5
     export DISPLAY=:0
-    DISPLAY=:0 XAUTHORITY=/var/run/lightdm/root/:0 /usr/bin/nvidia-settings -a "[gpu:0]/GPUFanControlState=1"
+    DISPLAY=:0 XAUTHORITY=/var/run/lightdm/root/:0 /usr/bin/nvidia-settings -a "[gpu:0]/GPUFanControlState=1" -a "[gpu:0]/GpuPowerMizerMode=0"
 }
 
 control_fan_speed() {
