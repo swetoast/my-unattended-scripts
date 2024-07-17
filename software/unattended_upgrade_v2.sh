@@ -76,7 +76,7 @@ list_packages() {
               packagetype=$(echo rpm)
               count=$(echo "$packagelist" | wc -l)
                ;;
-      pacman) packagelist=$(pacman -Qu | awk '{print $1}')
+      pacman) packagelist=$(pacman -Qu)
               packagetype=$(echo pkg)
               count=$(echo "$packagelist" | wc -l)
                ;;
