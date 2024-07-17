@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+
+# Ensure the script is run as root
+if [ "$(id -u)" != "0" ]; then exec sudo /bin/bash "$0"; fi
+
+# Configuration
+CONFIG="/opt/etc/unattended_update.conf"
+LOGS="/var/log/antivirus"
+INFECTED="$HOME/.infected"
+
+# Load configuration if it exists
+if [ -f "$CONFIG" ]; then
+    echo "Configuration file found at $CONFIG"
+    # shellcheck source=/dev/null
+    . "$CONFIG"
+else
+    echo "No configuration file present at $CONFIG"
+    exit 0
+fi
+
+# Enable or disable debug mode based on configuration
+[[ "${set_debug:-}" == "enabled" ]] && set -x || set +x
+
+# Functions
+send_pushbullet_notification() {
+    local title="$1"
+    local body="$2"
+    curl -u "${pushbullet_token:-}": https://api.pushbullet.com/v2/pushes -d type=note -d title="$title" -d body="$body"
+}
+
+send_pushbullet_file() {
+    local file_path="$1"
+    local file_name=$(basename "$file_path")
+    local file_type=$(file --mime-type -b "$file_path")
+    curl -u "${pushbullet_token:-}": https://api.pushbullet.com/v2/pushes -X POST -F "file=@$file_path;type=$file_type" -F "file_name=$file_name"
+}
+
+scan_system() {
+    nohup /usr/bin/clamscan --recursive --allmatch --infected --move="$INFECTED" --exclude-dir=/proc --exclude-dir=/sys --exclude-dir=/dev --log="$LOGS"/avscan.log --max-filesize=4000M --max-scansize=4000M --bytecode=yes /
+    chown "$USERNAME":users "$LOGS"/avscan.log
+}
+
+clean_logs() {
+    mkdir -p "$LOGS"
+    mkdir -p "$INFECTED"
+    rm "$LOGS"/*
+}
+
+compress_logs() {
+    local log_file="$LOGS/avscan.log"
+    local compressed_file="$LOGS/avscan.tar.gz"
+    if [ $(stat -c%s "$log_file") -gt 25000000 ]; then
+        tar -czf "$compressed_file" "$log_file"
+        rm "$log_file"
+        echo "$compressed_file"
+    else
+        echo "$log_file"
+    fi
+}
+
+# Main
+case "${1:-}" in
+    -pre)
+        send_pushbullet_notification "Antivirus Scan" "Started a Antivirus Scan on $HOSTNAME on the $(date)"
+        clean_logs
+        ;;
+    -post)
+        local log_file=$(compress_logs)
+        send_pushbullet_file "$log_file"
+        ;;
+    *)
+        scan_system
+        ;;
+esac
