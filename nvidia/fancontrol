@@ -62,7 +62,7 @@ control_fan_speed() {
         done
         avg_temp=$(printf "%s\\n" "${temp_array[@]}" | awk '{s+=$1} END {print int(s/NR)}')
         fan_speed=$(set_fan_speed $avg_temp)
-        echo "Fan speed changed to $fan_speed %, average temperature over last 60 seconds: $avg_temp"
+        echo "Fan speed changed to $fan_speed %, average temperature over last 60 seconds: $avg_temp °C"
     done
 }
 
