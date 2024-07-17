@@ -26,17 +26,17 @@ notify() {
 
 set_fan_speed() {
     local temp=$1
-    local speed=22
+    local fan_speed=22
     case $temp in
-        [30-39]) speed=25 ;;
-        [40-49]) speed=30 ;;
-        [50-59]) speed=50 ;;
-        [60-69]) speed=60 ;;
-        [70-79]) speed=80 ;;
-        [80-89]) speed=100; notify $temp ;;
+        [30-39]) fan_speed=25 ;;
+        [40-49]) fan_speed=30 ;;
+        [50-59]) fan_speed=50 ;;
+        [60-69]) fan_speed=60 ;;
+        [70-79]) fan_speed=80 ;;
+        [80-89]) fan_speed=100; notify $temp ;;
     esac
-    DISPLAY=:0 XAUTHORITY=/var/run/lightdm/root/:0 /usr/bin/nvidia-settings -a "[fan:0]/GPUTargetFanSpeed=$speed"
-    echo $speed
+    DISPLAY=:0 XAUTHORITY=/var/run/lightdm/root/:0 /usr/bin/nvidia-settings -a "[fan:0]/GPUTargetFanSpeed=fan_speed"
+    export $fan_speed
 }
 
 get_temp() {
@@ -62,7 +62,7 @@ control_fan_speed() {
         done
         avg_temp=$(printf "%s\\n" "${temp_array[@]}" | awk '{s+=$1} END {print int(s/NR)}')
         fan_speed=$(set_fan_speed $avg_temp)
-        echo "Fan speed changed to $fan_speed%, average temperature over last 60 seconds: $avg_temp"
+        echo "Fan speed changed to $fan_speed %, average temperature over last 60 seconds: $avg_temp"
     done
 }
 
