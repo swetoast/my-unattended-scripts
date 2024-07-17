@@ -6,75 +6,72 @@
 # gpustat https://github.com/wookayin/gpustat
 # nvidia-settings, this must be installed in headless mode (see readme.md for more info)
 
-if [ "$(id -u)" != "0" ]; then exec sudo /bin/bash "$0"; fi
+# Configuration
 CONFIG=/opt/etc/unattended_update.conf
-
-if [ -f "$CONFIG" ]
-    then    echo "Configuration file found at $CONFIG"
-    else    echo "No configuration file present at $CONFIG"
-            exit 0
+if [ ! -f "$CONFIG" ]; then
+    echo "No configuration file present at $CONFIG"
+    exit 0
 fi
+source "$CONFIG"
 
-. "$CONFIG"
+# Debugging
+[[ "$set_debug" == "enabled" ]] && set -x
 
-setting_debug_enabled () { set -x; }
-setting_debug_disable () { set +x; }
-
-if [ "$set_debug" = "enabled" ]; then setting_debug_enabled; fi
-
-function_notification_message () {
-message="Heat Warning on Nvidia Card"
-title="Current Temp: $(gpustat | grep -oE '[0-9]{2}.C')"
-curl -u "$pushbullet_token": https://api.pushbullet.com/v2/pushes -d type=note -d title="$title" -d body="$message"
+# Functions
+notify() {
+    local message="Current Temp: $(gpustat | grep -oE '[0-9]{2}.C')"
+    local title="Heat Warning on Nvidia Card"
+    curl -u "$pushbullet_token": https://api.pushbullet.com/v2/pushes -d type=note -d title="$title" -d body="$message"
 }
 
-function_set_fan_speed () {
-case $(gpustat | grep -oE '[0-9]{2}.C' | grep -oE '[0-9]{2}') in
-  1[0123456789]) DISPLAY=:0 XAUTHORITY=/var/run/lightdm/root/:0 /usr/bin/nvidia-settings -a "[fan:0]/GPUTargetFanSpeed=22";;
-  2[0123456789]) DISPLAY=:0 XAUTHORITY=/var/run/lightdm/root/:0 /usr/bin/nvidia-settings -a "[fan:0]/GPUTargetFanSpeed=22";;
-  3[0123456789]) DISPLAY=:0 XAUTHORITY=/var/run/lightdm/root/:0 /usr/bin/nvidia-settings -a "[fan:0]/GPUTargetFanSpeed=25";;
-  4[0123456789]) DISPLAY=:0 XAUTHORITY=/var/run/lightdm/root/:0 /usr/bin/nvidia-settings -a "[fan:0]/GPUTargetFanSpeed=30";;
-  5[0123456789]) DISPLAY=:0 XAUTHORITY=/var/run/lightdm/root/:0 /usr/bin/nvidia-settings -a "[fan:0]/GPUTargetFanSpeed=50";;
-  6[0123456789]) DISPLAY=:0 XAUTHORITY=/var/run/lightdm/root/:0 /usr/bin/nvidia-settings -a "[fan:0]/GPUTargetFanSpeed=60";;
-  7[0123456789]) DISPLAY=:0 XAUTHORITY=/var/run/lightdm/root/:0 /usr/bin/nvidia-settings -a "[fan:0]/GPUTargetFanSpeed=80";;
-  8[0123456789]) DISPLAY=:0 XAUTHORITY=/var/run/lightdm/root/:0 /usr/bin/nvidia-settings -a "[fan:0]/GPUTargetFanSpeed=100"; function_notification_message ;;
+set_fan_speed() {
+    local temp=$(gpustat | grep -oE '[0-9]{2}.C' | grep -oE '[0-9]{2}')
+    local speed=22
+    case $temp in
+        3[0-9]) speed=25 ;;
+        4[0-9]) speed=30 ;;
+        5[0-9]) speed=50 ;;
+        6[0-9]) speed=60 ;;
+        7[0-9]) speed=80 ;;
+        8[0-9]) speed=100; notify ;;
+    esac
+    DISPLAY=:0 XAUTHORITY=/var/run/lightdm/root/:0 /usr/bin/nvidia-settings -a "[fan:0]/GPUTargetFanSpeed=$speed"
+}
+
+store_last_value() {
+    GPUTEMP=$(gpustat | grep -oE '[0-9]{2}.C' | grep -oE '[0-9]{2}')
+    export GPUTEMP
+}
+
+initialize() {
+    nvidia-xconfig --allow-empty-initial-configuration --enable-all-gpus --cool-bits=4 --separate-x-screens
+    /usr/bin/nvidia-smi -pm ENABLED
+    /usr/bin/nvidia-smi -pl 110
+    X :0 &
+    sleep 5
+    export DISPLAY=:0
+    DISPLAY=:0 XAUTHORITY=/var/run/lightdm/root/:0 /usr/bin/nvidia-settings -a "[gpu:0]/GPUFanControlState=1"
+    store_last_value
+}
+
+control_fan_speed() {
+    while true; do
+        if [ "$(gpustat | grep -oE '[0-9]{2}.C' | grep -oE '[0-9]{2}')" -eq "$GPUTEMP" ]; then
+            store_last_value
+            sleep 60
+        else
+            set_fan_speed
+            store_last_value
+            echo "  Fan speed changed, temperature: $(gpustat | grep -oE '[0-9]{2}.C')"
+            sleep 60
+        fi
+    done
+}
+
+# Main
+case "${1}" in
+    -init) initialize ;;
+    *) control_fan_speed ;;
 esac
-}
 
-function_store_last_value () {
-GPUTEMP=$(gpustat | grep -oE '[0-9]{2}.C' | grep -oE '[0-9]{2}')
-export GPUTEMP
-}
-
-function_initialize () {
-nvidia-xconfig --allow-empty-initial-configuration --enable-all-gpus --cool-bits=4 --separate-x-screens
-/usr/bin/nvidia-smi -pm ENABLED
-/usr/bin/nvidia-smi -pl 110
-X :0 &
-sleep 5
-export DISPLAY=:0
-DISPLAY=:0 XAUTHORITY=/var/run/lightdm/root/:0 /usr/bin/nvidia-settings -a "[gpu:0]/GPUFanControlState=1"
-function_store_last_value
-}
-
-function_control_fan_speed () {
-while :
-do
-  if [ "$(gpustat | grep -oE '[0-9]{2}.C' | grep -oE '[0-9]{2}')" -eq "$GPUTEMP" ]
-  then    function_store_last_value
-          sleep 60
-  else    function_set_fan_speed
-          function_store_last_value
-          echo "  Fan speed changed, temperature: $(gpustat | grep -oE '[0-9]{2}.C')"
-          sleep 60
-  fi
-done
-}
-
-option="${1}"
-case ${option} in
-  -init) function_initialize ;;
-      *) function_control_fan_speed ;;
-esac
-
-if [ "$set_debug" = "enabled" ]; then setting_debug_disable; fi
+[[ "$set_debug" == "enabled" ]] && set +x
