@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Rev 8
+# Rev 9
 if [ "$(id -u)" != "0" ]; then exec sudo /bin/bash "$0"; fi
 
 CONFIG=/opt/etc/unattended_update.conf
@@ -22,17 +22,17 @@ curl -u "$pushbullet_token": https://api.pushbullet.com/v2/pushes -d type=note -
 }
 
 notification_message () {
-message="$(for SUMMARY in $(find "$LOGS" -maxdepth 1 -type f -size +1k); do cat "$SUMMARY"; done)"
+message="$(find "$LOGS" -maxdepth 1 -type f -size +1k -exec cat {} \;)"
 title="Here is a summary for HDD Scans from $HOSTNAME"
 curl -u "$pushbullet_token": https://api.pushbullet.com/v2/pushes -d type=note -d title="$title" -d body="$message"
 }
 
 check_filesystem () {
-if [ $(df -T | grep btrfs | awk '{ print $7 }' | wc -l) -ge 1 ]; then
+if [ "$(df -T | grep btrfs | awk '{ print $7 }' | wc -l)" -ge 1 ]; then
 for BTRFS in $(df -T | grep btrfs | awk '{ print $7 }'); do btrfs scrub start "$BTRFS"; done
 fi
 
-if [ $(df -T | grep ext4 | awk '{ print $7 }' | wc -l) -ge 1 ]; then fstrim -Av; fi
+if [ "$(df -T | grep ext4 | awk '{ print $7 }' | wc -l)" -ge 1 ]; then fstrim -Av; fi
 }
 
 check_logs () {
@@ -52,39 +52,39 @@ run_smartctl
 
 run_bbf () {
 if [ "$(which bbf)" ]; then
-if [ $(find /dev/ | grep -E "sd[a-z]$" | wc -l) -ge 1 ]; then
-   for DEVICE in $( ls /dev/sd[a-z] | cut -d '/' -f3); do /usr/local/bin/bbf scan /dev/"$DEVICE" -o "$LOGS"/blocks/"$DEVICE".log;chown "$USERNAME":users "$LOGS"/blocks/"$DEVICE".log; done
+if [ "$(find /dev/ -name 'sd*' | wc -l)" -ge 1 ]; then
+   for DEVICE in $( find /dev/ -name 'sd*' | cut -d '/' -f3); do /usr/local/bin/bbf scan /dev/"$DEVICE" -o "$LOGS"/blocks/"$DEVICE".log;chown "$USERNAME":users "$LOGS"/blocks/"$DEVICE".log; done
 fi
 
-if [ $(find /dev/ | grep -E "nvme[0-9]n1$" | wc -l) -ge 1 ]; then
-   for DEVICE in $( ls /dev/nvme[0-9]n1 | cut -d '/' -f3); do /usr/local/bin/bbf scan /dev/"$DEVICE" -o "$LOGS"/blocks/"$DEVICE".log;chown "$USERNAME":users "$LOGS"/blocks/"$DEVICE".log; done
+if [ "$(find /dev/ -name 'nvme*' | wc -l)" -ge 1 ]; then
+   for DEVICE in $( find /dev/ -name 'nvme*' | cut -d '/' -f3); do /usr/local/bin/bbf scan /dev/"$DEVICE" -o "$LOGS"/blocks/"$DEVICE".log;chown "$USERNAME":users "$LOGS"/blocks/"$DEVICE".log; done
 fi
 
-if [ $(find /dev/ | grep -E "mmcblk[0-9]$" | wc -l) -ge 1 ]; then
-   for DEVICE in $( ls /dev/mmcblk[0-9] | cut -d '/' -f3); do /usr/local/bin/bbf scan /dev/"$DEVICE" -o "$LOGS"/blocks/"$DEVICE".log;chown "$USERNAME":users "$LOGS"/blocks/"$DEVICE".log; done
+if [ "$(find /dev/ -name 'mmcblk*' | wc -l)" -ge 1 ]; then
+   for DEVICE in $( find /dev/ -name 'mmcblk*' | cut -d '/' -f3); do /usr/local/bin/bbf scan /dev/"$DEVICE" -o "$LOGS"/blocks/"$DEVICE".log;chown "$USERNAME":users "$LOGS"/blocks/"$DEVICE".log; done
 fi
 fi
 }
 
 run_badblocks () {
-if [ $(find /dev/ | grep -E "sd[a-z]$" | wc -l) -ge 1 ]; then
-    for DEVICE in $( ls /dev/sd[a-z] | cut -d '/' -f3); do badblocks -s /dev/"$DEVICE" -o "$LOGS"/blocks/"$DEVICE".log; chown "$USERNAME":users "$LOGS"/blocks/"$DEVICE".log; done
+if [ "$(find /dev/ -name 'sd*' | wc -l)" -ge 1 ]; then
+    for DEVICE in $( find /dev/ -name 'sd*' | cut -d '/' -f3); do badblocks -s /dev/"$DEVICE" -o "$LOGS"/blocks/"$DEVICE".log; chown "$USERNAME":users "$LOGS"/blocks/"$DEVICE".log; done
 fi
 
-if [ $(find /dev/ | grep -E "nvme[0-9]n1$" | wc -l) -ge 1 ]; then
-    for DEVICE in $( ls /dev/nvme[0-9]n1 | cut -d '/' -f3); do badblocks -s /dev/"$DEVICE" -o "$LOGS"/blocks/"$DEVICE".log; chown "$USERNAME":users "$LOGS"/blocks/"$DEVICE".log; done
+if [ "$(find /dev/ -name 'nvme*' | wc -l)" -ge 1 ]; then
+    for DEVICE in $( find /dev/ -name 'nvme*' | cut -d '/' -f3); do badblocks -s /dev/"$DEVICE" -o "$LOGS"/blocks/"$DEVICE".log; chown "$USERNAME":users "$LOGS"/blocks/"$DEVICE".log; done
 fi
 
-if [ $(find /dev/ | grep -E "mmcblk[0-9]$" | wc -l) -ge 1 ]; then
-    for DEVICE in $( ls /dev/mmcblk[0-9] | cut -d '/' -f3); do badblocks -s /dev/"$DEVICE" -o "$LOGS"/blocks/"$DEVICE".log; chown "$USERNAME":users "$LOGS"/blocks/"$DEVICE".log; done
+if [ "$(find /dev/ -name 'mmcblk*' | wc -l)" -ge 1 ]; then
+    for DEVICE in $( find /dev/ -name 'mmcblk*' | cut -d '/' -f3); do badblocks -s /dev/"$DEVICE" -o "$LOGS"/blocks/"$DEVICE".log; chown "$USERNAME":users "$LOGS"/blocks/"$DEVICE".log; done
 fi
 }
 
 run_smartctl () {
 if [ "$(which smartctl)" ] 
-   then if [ $(find /dev/ | grep -E sd[a-z]$ | wc -l) -ge 1 ]; then
-            for DEVICE in $( ls /dev/sd[a-z] | cut -d '/' -f3); do smartctl -H /dev/"$DEVICE" | grep -E "PASSED|FAILED" > "$LOGS"/smart/"$DEVICE".log;chown "$USERNAME":users "$LOGS"/smart/"$DEVICE".log ; done
-            for DEVICE in $( ls /dev/sd[a-z] | cut -d '/' -f3); do smartctl -t long /dev/"$DEVICE"; done
+   then if [ "$(find /dev/ -name 'sd*' | wc -l)" -ge 1 ]; then
+            for DEVICE in $( find /dev/ -name 'sd*' | cut -d '/' -f3); do smartctl -H /dev/"$DEVICE" | grep -E "PASSED|FAILED" > "$LOGS"/smart/"$DEVICE".log;chown "$USERNAME":users "$LOGS"/smart/"$DEVICE".log ; done
+            for DEVICE in $( find /dev/ -name 'sd*' | cut -d '/' -f3); do smartctl -t long /dev/"$DEVICE"; done
    fi
 fi
 }
