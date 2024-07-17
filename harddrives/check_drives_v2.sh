@@ -38,7 +38,7 @@ send_file() {
     if [ $(stat -c%s "$file_path") -le $MAX_SIZE ]; then
         curl -u "$pushbullet_token": https://api.pushbullet.com/v2/pushes -X POST -F type=file -F file_name="$file_name" -F file=@$file_path -F title="$title"
     else
-        echo "File $file_name is larger than 25MB. Attempting to compress..."
+        send_message "File $file_name is larger than 25MB. Attempting to compress..."
 
         # Compress the file
         gzip -c "$file_path" > "$file_path.gz"
