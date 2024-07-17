@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# Rev 10
+# Rev 13
 
 CONFIG=/opt/etc/unattended_update.conf
-LOGS="$CONFIG/logs"  # Assuming logs directory is inside the CONFIG directory
+MAX_SIZE=26214400  # 25MB in bytes
 
 # Ensure the script is run as root
 if [ "$(id -u)" != "0" ]; then exec sudo /bin/bash "$0"; fi
 
 # Check if configuration file exists
 if [ ! -f "$CONFIG" ]; then
-    echo "No configuration file present at $CONFIG"
+    send_message "No configuration file present at $CONFIG"
     exit 0
 fi
 
@@ -21,29 +21,42 @@ toggle_debug() {
     [ "$set_debug" = "enabled" ] && set -x || set +x
 }
 
-# Function to send a startup message
-startup_message() {
-    curl -u "$pushbullet_token": https://api.pushbullet.com/v2/pushes -d type=note -d title="HDD Scan" -d body="Started a HDD scan on $HOSTNAME on the $(date)"
+# Function to send a message
+send_message() {
+    local body=$1
+    local title="HDD Scan on $HOSTNAME"
+    curl -u "$pushbullet_token": https://api.pushbullet.com/v2/pushes -d type=note -d title="$title" -d body="$body"
 }
 
-# Function to send a notification message
-notification_message() {
-    find "$LOGS" -maxdepth 1 -type f -size +1k -exec cat {} \; | while read -r SUMMARY; do
-        message="$SUMMARY"
-        title="Here is a summary for HDD Scans from $HOSTNAME"
-        curl -u "$pushbullet_token": https://api.pushbullet.com/v2/pushes -d type=note -d title="$title" -d body="$message"
-    done
+# Function to send a file
+send_file() {
+    local file_path=$1
+    local file_name=$(basename "$file_path")
+    local title="Here is a log file from HDD Scans on $HOSTNAME"
+
+    # Check if the file size is less than the max size
+    if [ $(stat -c%s "$file_path") -le $MAX_SIZE ]; then
+        curl -u "$pushbullet_token": https://api.pushbullet.com/v2/pushes -X POST -F type=file -F file_name="$file_name" -F file=@$file_path -F title="$title"
+    else
+        echo "File $file_name is larger than 25MB. Attempting to compress..."
+
+        # Compress the file
+        gzip -c "$file_path" > "$file_path.gz"
+
+        # Check if the compressed file size is less than the max size
+        if [ $(stat -c%s "$file_path.gz") -le $MAX_SIZE ]; then
+            curl -u "$pushbullet_token": https://api.pushbullet.com/v2/pushes -X POST -F type=file -F file_name="$file_name.gz" -F file=@$file_path.gz -F title="$title"
+        else
+            # Send a Pushbullet message indicating that the file is too large
+            send_message "Compressed file $file_name.gz is still larger than 25MB and will not be sent."
+        fi
+    fi
 }
 
 # Function to check filesystem
 check_filesystem() {
     df -T | awk '/btrfs/ {system("btrfs scrub start "$7)}'
     df -T | awk '/ext4/ {system("fstrim -Av")}'
-}
-
-# Function to check logs
-check_logs() {
-    find "$LOGS" -maxdepth 1 -type f -size +1k -exec notification_message {} \;
 }
 
 # Function to clean system logs
@@ -77,6 +90,9 @@ run_smartctl() {
         for DEVICE in /dev/sd*; do
             smartctl -H "$DEVICE" | grep -E "PASSED|FAILED" > "$LOGS/smart/$(basename "$DEVICE").log"
             chown "$USERNAME":users "$LOGS/smart/$(basename "$DEVICE").log"
+            if grep -q "PASSED" "$LOGS/smart/$(basename "$DEVICE").log"; then
+                send_file "$LOGS/smart/$(basename "$DEVICE").log"
+            fi
             smartctl -t long "$DEVICE"
         done
     fi
@@ -84,11 +100,9 @@ run_smartctl() {
 
 # Main script execution
 toggle_debug
-startup_message
+send_message "Started a HDD scan on $HOSTNAME on the $(date)"
 clean_system_logs
 check_drives
-run_disk_check_tool bbf blocks
-run_disk_check_tool badblocks blocks
 check_filesystem
-check_logs
+find "$LOGS" -maxdepth 1 -type f -size +1k -exec send_file {} \;
 toggle_debug
