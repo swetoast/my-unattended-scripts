@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
+# Rev 2
 
 # Ensure the script is run as root
 if [ "$(id -u)" != "0" ]; then exec sudo /bin/bash "$0"; fi
 
 # Configuration
 CONFIG="/opt/etc/unattended_update.conf"
-LOGS="/var/log/antivirus"
-INFECTED="$HOME/.infected"
 
 # Load configuration if it exists
 if [ -f "$CONFIG" ]; then
