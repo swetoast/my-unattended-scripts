@@ -81,7 +81,7 @@ list_packages() {
               count=$(echo "$packagelist" | wc -l)
                ;;
       snap) packagelist=$(snap)
-            packagelist=$(snap refresh --list 2>&1 | grep -v 'All snaps up to date.')
+            packagelist=$(snap refresh --list 2>&1 | grep -vE "All snaps up to date.")
             packagetype=$(echo snap)
             count=$(echo "$packagelist" | wc -l)
              ;;
