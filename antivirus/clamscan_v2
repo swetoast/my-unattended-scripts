@@ -58,16 +58,8 @@ compress_logs() {
 }
 
 # Main
-case "${1:-}" in
-    -pre)
-        send_pushbullet_notification "Antivirus Scan" "Started a Antivirus Scan on $HOSTNAME on the $(date)"
-        clean_logs
-        ;;
-    -post)
-        local log_file=$(compress_logs)
-        send_pushbullet_file "$log_file"
-        ;;
-    *)
-        scan_system
-        ;;
-esac
+send_pushbullet_notification "Antivirus Scan" "Started a Antivirus Scan on $HOSTNAME on the $(date)"
+clean_logs
+local log_file=$(compress_logs)
+send_pushbullet_file "$log_file"
+scan_system
