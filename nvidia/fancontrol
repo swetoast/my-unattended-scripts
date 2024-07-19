@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Revision 8
+
+# Revision 9
+
 # A Fan Controling script for my nvidia Card in a server
 # Store this file at /usr/bin/fancontrol and then use the service to run it with systemd
 # Dependacies: 
@@ -14,8 +16,8 @@ if [ ! -f "$CONFIG" ]; then
 fi
 source "$CONFIG"
 
-# Debugging
-[[ "$set_debug" == "enabled" ]] && set -x
+# Enable or disable debug mode
+[ "${set_debug:-disabled}" = "enabled" ] && set -x || set +x
 
 # Functions
 notify() {
@@ -40,7 +42,12 @@ set_fan_speed() {
 }
 
 get_temp() {
-    echo $(gpustat | grep -oE '[0-9]{2}.C' | grep -oE '[0-9]{2}')
+    if command -v gpustat &> /dev/null
+    then
+        echo $(gpustat | grep -oE '[0-9]{2}.C' | grep -oE '[0-9]{2}')
+    else
+        echo $(nvidia-smi --query-gpu=temperature.gpu --format=csv,noheader | grep -oE '[0-9]{2}')
+    fi
 }
 
 initialize() {
@@ -71,5 +78,3 @@ case "${1}" in
     -init) initialize ;;
     *) control_fan_speed ;;
 esac
-
-[[ "$set_debug" == "enabled" ]] && set +x
