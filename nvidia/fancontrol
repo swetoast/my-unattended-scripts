@@ -1,29 +1,31 @@
-#!/usr/bin/env bash
-
-# Revision 9
-
+#!/bin/bash
+# Revision 6
 # A Fan Controling script for my nvidia Card in a server
 # Store this file at /usr/bin/fancontrol and then use the service to run it with systemd
-# Dependacies: 
+# Dependacies:
 # gpustat https://github.com/wookayin/gpustat
 # nvidia-settings, this must be installed in headless mode (see readme.md for more info)
 
-# Configuration
+if [ "$(id -u)" != "0" ]; then exec sudo /bin/bash "$0"; fi
 CONFIG=/opt/etc/unattended_update.conf
-if [ ! -f "$CONFIG" ]; then
-    echo "No configuration file present at $CONFIG"
-    exit 0
+
+if [ -f "$CONFIG" ]
+    then    echo "Configuration file found at $CONFIG"
+    else    echo "No configuration file present at $CONFIG"
+            exit 0
 fi
-source "$CONFIG"
+
+# shellcheck source=/dev/null
+. "$CONFIG"
 
 # Enable or disable debug mode
-[ "${set_debug:-disabled}" = "enabled" ] && set -x || set +x
+if [ "${set_debug:-disabled}" = "enabled" ]; then set -x; else set +x; fi
 
-# Functions
 notify_critical() {
-    local stats=$(/usr/bin/nvidia-smi --query-gpu=temperature.gpu,utilization.gpu,utilization.memory,power.draw,pstate --format=csv,noheader | awk -F', ' '{print $1,$2,$3,$4,$5}')
-    read -r temp gpu_usage mem_usage power_usage pstate_num <<< "$stats"
     local fan_speed=$1
+    local stats
+    stats=$(/usr/bin/nvidia-smi --query-gpu=temperature.gpu,utilization.gpu,utilization.memory,power.draw,pstate --format=csv,noheader | awk -F', ' '{print $1,$2,$3,$4,$5}')
+    read -r temp gpu_usage mem_usage power_usage pstate_num <<< "$stats"
 
     local pstate_descriptions=("Maximum Performance" "Near Maximum Performance" "High Performance" "Above Average Performance" "Average Performance" "Below Average Performance" "Low Performance" "Lower Performance" "Near Minimum Performance" "Minimum Performance" "Lowest Performance" "Unknown Performance State")
     local pstate=${pstate_descriptions[$pstate_num]}
@@ -31,58 +33,57 @@ notify_critical() {
     local title="Critical GPU Status Alert"
     local body="The GPU temperature has reached a critical level of $temp°C. The current fan speed is set to $fan_speed%. The GPU usage is at $gpu_usage% and memory usage is at $mem_usage%. The power usage is $power_usage watts. The performance state is $pstate. Immediate attention is required."
 
-    curl -u "$pushbullet_token": https://api.pushbullet.com/v2/pushes -d type=note -d title="$title" -d body="$body"
+    curl -u "${pushbullet_token:-}": https://api.pushbullet.com/v2/pushes -d type=note -d title="$title" -d body="$body"
 }
 
-set_fan_speed() {
-    local temp=$1
-    local fan_speed=22
-    case $temp in
-        [30-39]) fan_speed=25 ;;
-        [40-49]) fan_speed=30 ;;
-        [50-59]) fan_speed=50 ;;
-        [60-69]) fan_speed=60 ;;
-        [70-79]) fan_speed=80 ;;
-        [80-89]) fan_speed=100; notify_critical $fan_speed ;;
-    esac
-    echo "Fan speed changed to $fan_speed %, temperature: $temp °C"
-    DISPLAY=:0 XAUTHORITY=/var/run/lightdm/root/:0 /usr/bin/nvidia-settings -a "[fan:0]/GPUTargetFanSpeed=$fan_speed"
-}
-
-get_temp() {
-    if command -v gpustat &> /dev/null
-    then
-        gpustat | grep -oE '[0-9]{2}.C' | grep -oE '[0-9]{2}'
-    else
-        nvidia-smi --query-gpu=temperature.gpu --format=csv,noheader | grep -oE '[0-9]{2}'
-    fi
-}
-
-initialize() {
-    nvidia-xconfig --allow-empty-initial-configuration --enable-all-gpus --cool-bits=4 --separate-x-screens
-    /usr/bin/nvidia-smi -pm ENABLED
-    /usr/bin/nvidia-smi -pl 110
-    X :0 &
-    sleep 5
-    export DISPLAY=:0
-    DISPLAY=:0 XAUTHORITY=/var/run/lightdm/root/:0 /usr/bin/nvidia-settings -a "[gpu:0]/GPUFanControlState=1" -a "[gpu:0]/GpuPowerMizerMode=0"
-}
-
-control_fan_speed() {
-    while true; do
-        temp_array=()
-        for i in {1..60}; do
-            temp_array+=("$(get_temp)")
-            sleep 1
-        done
-        avg_temp=$(printf "%s\\n" "${temp_array[@]}" | awk '{s+=$1} END {print int(s/NR)}')
-        set_fan_speed $avg_temp
-        echo "Fan speed changed to $fan_speed %, average temperature over last 60 seconds: $avg_temp °C"
-    done
-}
-
-# Main
-case "${1}" in
-    -init) initialize ;;
-    *) control_fan_speed ;;
+function_set_fan_speed () {
+case $(gpustat | grep -oE '[0-9]{2}.C' | grep -oE '[0-9]{2}') in
+  2[0123456789]) DISPLAY=:0 XAUTHORITY=/var/run/lightdm/root/:0 /usr/bin/nvidia-settings -a "[fan:0]/GPUTargetFanSpeed=22";;
+  3[01234]) DISPLAY=:0 XAUTHORITY=/var/run/lightdm/root/:0 /usr/bin/nvidia-settings -a "[fan:0]/GPUTargetFanSpeed=25";;
+  3[56789]) DISPLAY=:0 XAUTHORITY=/var/run/lightdm/root/:0 /usr/bin/nvidia-settings -a "[fan:0]/GPUTargetFanSpeed=30";;
+  4[01234]) DISPLAY=:0 XAUTHORITY=/var/run/lightdm/root/:0 /usr/bin/nvidia-settings -a "[fan:0]/GPUTargetFanSpeed=40";;
+  4[56789]) DISPLAY=:0 XAUTHORITY=/var/run/lightdm/root/:0 /usr/bin/nvidia-settings -a "[fan:0]/GPUTargetFanSpeed=45";;
+  5[0123456789]) DISPLAY=:0 XAUTHORITY=/var/run/lightdm/root/:0 /usr/bin/nvidia-settings -a "[fan:0]/GPUTargetFanSpeed=50";;
+  6[0123456789]) DISPLAY=:0 XAUTHORITY=/var/run/lightdm/root/:0 /usr/bin/nvidia-settings -a "[fan:0]/GPUTargetFanSpeed=60";;
+  7[0123456789]) DISPLAY=:0 XAUTHORITY=/var/run/lightdm/root/:0 /usr/bin/nvidia-settings -a "[fan:0]/GPUTargetFanSpeed=80";;
+  8[0123456789]) DISPLAY=:0 XAUTHORITY=/var/run/lightdm/root/:0 /usr/bin/nvidia-settings -a "[fan:0]/GPUTargetFanSpeed=100"; notify_critical 100 ;;
 esac
+}
+
+function_store_last_value () {
+export GPUTEMP
+GPUTEMP=$(gpustat | grep -oE '[0-9]{2}.C' | grep -oE '[0-9]{2}')
+}
+
+function_initialize () {
+nvidia-xconfig --allow-empty-initial-configuration --enable-all-gpus --cool-bits=4 --separate-x-screens
+/usr/bin/nvidia-smi -pm ENABLED
+/usr/bin/nvidia-smi -pl 110
+X :0 &
+sleep 5
+export DISPLAY=:0
+DISPLAY=:0 XAUTHORITY=/var/run/lightdm/root/:0 /usr/bin/nvidia-settings -a "[gpu:0]/GPUFanControlState=1"
+function_store_last_value
+}
+
+function_control_fan_speed () {
+while :
+do
+  if [ "$(gpustat | grep -oE '[0-9]{2}.C' | grep -oE '[0-9]{2}')" -eq "$GPUTEMP" ]
+  then    function_store_last_value
+          sleep 60
+  else    function_set_fan_speed
+          function_store_last_value
+          echo "  Fan speed changed, temperature: $(gpustat | grep -oE '[0-9]{2}.C')"
+          sleep 60
+  fi
+done
+}
+
+option="${1}"
+case ${option} in
+  -init) function_initialize ;;
+      *) function_control_fan_speed ;;
+esac
+
+if [ "$set_debug" = "enabled" ]; then setting_debug_disable; fi
