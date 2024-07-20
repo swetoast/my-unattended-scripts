@@ -45,6 +45,7 @@ set_fan_speed() {
         [70-79]) fan_speed=80 ;;
         [80-89]) fan_speed=100; notify_critical $fan_speed ;;
     esac
+    echo "Fan speed changed to $fan_speed %, temperature: $temp °C"
     DISPLAY=:0 XAUTHORITY=/var/run/lightdm/root/:0 /usr/bin/nvidia-settings -a "[fan:0]/GPUTargetFanSpeed=$fan_speed"
 }
 
