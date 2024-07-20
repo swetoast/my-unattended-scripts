@@ -1,13 +1,5 @@
 #!/usr/bin/env bash
-
-# Revision 9
-
-# A Fan Controling script for my nvidia Card in a server
-# Store this file at /usr/bin/fancontrol and then use the service to run it with systemd
-# Dependacies: 
-# gpustat https://github.com/wookayin/gpustat
-# nvidia-settings, this must be installed in headless mode (see readme.md for more info)
-
+# Revision 10
 # Configuration
 CONFIG=/opt/etc/unattended_update.conf
 if [ ! -f "$CONFIG" ]; then
@@ -26,81 +18,68 @@ Kd=0.1
 prev_error=0
 integral=0
 
+# Array to store temperatures
+temps=()
+
 # Functions
-notify_critical() {
-    local stats=$(/usr/bin/nvidia-smi --query-gpu=temperature.gpu,utilization.gpu,utilization.memory,power.draw,pstate --format=csv,noheader | awk -F', ' '{print $1,$2,$3,$4,$5}')
-    read -r temp gpu_usage mem_usage power_usage pstate_num <<< "$stats"
-    local fan_speed=$1
+# ... (keep the other functions as they are) ...
 
-    local pstate_descriptions=("Maximum Performance" "Near Maximum Performance" "High Performance" "Above Average Performance" "Average Performance" "Below Average Performance" "Low Performance" "Lower Performance" "Near Minimum Performance" "Minimum Performance" "Lowest Performance" "Unknown Performance State")
-    local pstate=${pstate_descriptions[$pstate_num]}
-
-    local title="Critical GPU Status Alert"
-    local body="The GPU temperature has reached a critical level of $temp°C. The current fan speed is set to $fan_speed%. The GPU usage is at $gpu_usage% and memory usage is at $mem_usage%. The power usage is $power_usage watts. The performance state is $pstate. Immediate attention is required."
-
-    curl -u "$pushbullet_token": https://api.pushbullet.com/v2/pushes -d type=note -d title="$title" -d body="$body"
-}
-
-set_fan_speed() {
-    local fan_speed=$1
-    DISPLAY=:0 XAUTHORITY=/var/run/lightdm/root/:0 /usr/bin/nvidia-settings -a "[fan:0]/GPUTargetFanSpeed=$fan_speed"
-}
-
-get_temp() {
-    if command -v gpustat &> /dev/null
-    then
-        gpustat | grep -oE '[0-9]{2}.C' | grep -oE '[0-9]{2}'
-    else
-        nvidia-smi --query-gpu=temperature.gpu --format=csv,noheader | grep -oE '[0-9]{2}'
-    fi
-}
-
-initialize() {
-    nvidia-xconfig --allow-empty-initial-configuration --enable-all-gpus --cool-bits=4 --separate-x-screens
-    /usr/bin/nvidia-smi -pm ENABLED
-    /usr/bin/nvidia-smi -pl 110
-    X :0 &
-    sleep 5
-    export DISPLAY=:0
-    DISPLAY=:0 XAUTHORITY=/var/run/lightdm/root/:0 /usr/bin/nvidia-settings -a "[gpu:0]/GPUFanControlState=1" -a "[gpu:0]/GpuPowerMizerMode=0"
+get_avg_temp() {
+    local total=0
+    for temp in "${temps[@]}"; do
+        ((total += temp))
+    done
+    echo $((total / ${#temps[@]}))
 }
 
 control_fan_speed() {
     local target_temp=40  # Set your target temperature here
+
     while true; do
         # Get current temperature
         curr_temp=$(get_temp)
 
-        # Calculate error
-        error=$((target_temp - curr_temp))
+        # Store temperature in array
+        temps+=($curr_temp)
 
-        # Calculate integral and derivative
-        integral=$((integral + error))
-        derivative=$((error - prev_error))
+        # If 60 seconds have passed, calculate average temperature
+        if ((${#temps[@]} == 60)); then
+            avg_temp=$(get_avg_temp)
 
-        # Calculate output
-        output=$(echo "$Kp * $error + $Ki * $integral + $Kd * $derivative" | bc)
+            # Calculate error
+            error=$((target_temp - avg_temp))
 
-        # Convert output to fan speed
-        fan_speed=$(echo "scale=0; 22 + $output / 2" | bc)
+            # Calculate integral and derivative
+            integral=$((integral + error))
+            derivative=$((error - prev_error))
 
-        # Ensure fan speed is within valid range (0-100)
-        if ((fan_speed < 0)); then
-            fan_speed=0
-        elif ((fan_speed > 100)); then
-            fan_speed=100
+            # Calculate output
+            output=$(echo "$Kp * $error + $Ki * $integral + $Kd * $derivative" | bc)
+
+            # Convert output to fan speed
+            fan_speed=$(echo "scale=0; 22 + $output / 2" | bc)
+
+            # Ensure fan speed is within valid range (0-100)
+            if ((fan_speed < 0)); then
+                fan_speed=0
+            elif ((fan_speed > 100)); then
+                fan_speed=100
+            fi
+
+            # Set fan speed
+            set_fan_speed $fan_speed
+
+            # If temperature is too high, send notification
+            if ((avg_temp > 80)); then
+                notify_critical $fan_speed
+            fi
+
+            # Update previous error
+            prev_error=$error
+
+            # Reset temperature array
+            temps=()
         fi
-
-        # Set fan speed
-        set_fan_speed $fan_speed
-
-        # If temperature is too high, send notification
-        if ((curr_temp > 80)); then
-            notify_critical $fan_speed
-        fi
-
-        # Update previous error
-        prev_error=$error
 
         # Wait for a bit before next iteration
         sleep 1
