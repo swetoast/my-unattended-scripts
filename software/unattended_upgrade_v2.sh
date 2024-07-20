@@ -137,6 +137,7 @@ cleanup_packages() {
     esac
   fi
 }
+
 # Function to check if a reboot is required and reboot if necessary
 check_reboot_required() {
   local pkg_manager="$1"
