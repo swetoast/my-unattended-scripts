@@ -158,10 +158,12 @@ check_reboot_required() {
     esac
   fi
   if [ "$reboot_required" = true ]; then
-    pushbullet_message "$event" "A reboot is required after an update."
+    pushbullet_message "$event" "A reboot is required after an update. The system will reboot now."
     if [ "${reboot_after_update:-false}" = true ]; then
       sync; sleep 60; reboot
     fi
+  else
+    pushbullet_message "$event" "A reboot is required after an update."
   fi
 }
 
