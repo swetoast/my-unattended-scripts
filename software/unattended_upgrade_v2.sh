@@ -143,6 +143,7 @@ check_reboot_required() {
   local reboot_required=false
 
   for pkg_manager in "${!pkg_managers[@]}"; do
+    reboot_required=false  # Reset reboot_required for each package manager
     if command -v "$pkg_manager" >/dev/null 2>&1; then
       case $pkg_manager in
         apt) [ -f /var/run/reboot-required ] && reboot_required=true ;;
