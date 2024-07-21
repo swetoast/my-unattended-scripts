@@ -139,24 +139,27 @@ cleanup_packages() {
 
 # Function to check if a reboot is required and reboot if necessary
 check_reboot_required() {
-  local pkg_manager="$1"
   local event="Reboot required"
   local reboot_required=false
 
-  if command -v "$pkg_manager" >/dev/null 2>&1; then
-    case $pkg_manager in
-      apt) [ -f /var/run/reboot-required ] && reboot_required=true ;;
-      yum|dnf) [ -n "$(needs-restarting -r)" ] && reboot_required=true ;;
-      pacman) 
-        local kernel_pkg
-        if uname -r | grep -q 'lts'; then kernel_pkg='linux-lts'
-        elif uname -r | grep -q 'zen'; then kernel_pkg='linux-zen'
-        elif uname -r | grep -q 'hardened'; then kernel_pkg='linux-hardened'
-        elif uname -r | grep -q 'rpi'; then kernel_pkg='linux-rpi'
-        else kernel_pkg='linux'; fi
-        [[ $(pacman -Q $kernel_pkg | cut -d " " -f 2) > $(uname -r) ]] && reboot_required=true ;;
-    esac
-  fi
+  for pkg_manager in "${!pkg_managers[@]}"; do
+    if command -v "$pkg_manager" >/dev/null 2>&1; then
+      case $pkg_manager in
+        apt) [ -f /var/run/reboot-required ] && reboot_required=true ;;
+        yum|dnf) [ -n "$(needs-restarting -r)" ] && reboot_required=true ;;
+        pacman) 
+          local kernel_pkg
+          if uname -r | grep -q 'lts'; then kernel_pkg='linux-lts'
+          elif uname -r | grep -q 'zen'; then kernel_pkg='linux-zen'
+          elif uname -r | grep -q 'hardened'; then kernel_pkg='linux-hardened'
+          elif uname -r | grep -q 'rpi'; then kernel_pkg='linux-rpi'
+          else kernel_pkg='linux'; fi
+          [[ $(pacman -Q $kernel_pkg | cut -d " " -f 2) > $(uname -r) ]] && reboot_required=true ;;
+      esac
+    fi
+    if [ "$reboot_required" = true ]; then break; fi
+  done
+
   if [ "$reboot_required" = true ]; then
     pushbullet_message "$event" "A reboot is required after an update. The system will reboot now."
     if [ "${reboot_after_update:-false}" = true ]; then
