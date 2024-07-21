@@ -148,13 +148,14 @@ check_reboot_required() {
         apt) [ -f /var/run/reboot-required ] && reboot_required=true ;;
         yum|dnf) [ -n "$(needs-restarting -r)" ] && reboot_required=true ;;
         pacman) 
-          local kernel_pkg
+          kernel_pkg=""
           if uname -r | grep -q 'lts'; then kernel_pkg='linux-lts'
           elif uname -r | grep -q 'zen'; then kernel_pkg='linux-zen'
           elif uname -r | grep -q 'hardened'; then kernel_pkg='linux-hardened'
           elif uname -r | grep -q 'rpi'; then kernel_pkg='linux-rpi'
           else kernel_pkg='linux'; fi
-          [[ $(pacman -Q $kernel_pkg | cut -d " " -f 2) > $(uname -r) ]] && reboot_required=true ;;
+          kernel_version=$(uname -r | sed -e 's/-lts//' -e 's/-zen//' -e 's/-hardened//' -e 's/-rpi//')  # Remove the suffixes from the output of uname -r
+          [[ $(pacman -Q $kernel_pkg | cut -d " " -f 2) > $kernel_version ]] && reboot_required=true ;;
       esac
     fi
     if [ "$reboot_required" = true ]; then break; fi
