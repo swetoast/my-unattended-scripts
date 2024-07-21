@@ -155,7 +155,9 @@ check_reboot_required() {
           elif uname -r | grep -q 'rpi'; then kernel_pkg='linux-rpi'
           else kernel_pkg='linux'; fi
           kernel_version=$(uname -r | sed -e 's/-lts//' -e 's/-zen//' -e 's/-hardened//' -e 's/-rpi//')  # Remove the suffixes from the output of uname -r
-          [[ $(pacman -Q $kernel_pkg | cut -d " " -f 2) > $kernel_version ]] && reboot_required=true ;;
+          if [[ $(echo -e "$(pacman -Q $kernel_pkg | cut -d " " -f 2)\n$kernel_version" | sort -Vr | head -n 1) != $kernel_version ]]; then
+            reboot_required=true
+          fi ;;
       esac
     fi
     if [ "$reboot_required" = true ]; then break; fi
