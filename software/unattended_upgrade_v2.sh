@@ -169,8 +169,6 @@ check_reboot_required() {
     if [ "${reboot_after_update:-false}" = true ]; then
       sync; sleep 60; reboot
     fi
-  else
-    pushbullet_message "$event" "A reboot is required after an update."
   fi
 }
 
