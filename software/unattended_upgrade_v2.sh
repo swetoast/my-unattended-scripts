@@ -183,5 +183,5 @@ for pkg_manager in "${!pkg_managers[@]}"; do
   update_packages "$pkg_manager" "${pkg_managers[$pkg_manager]}"
   list_packages "$pkg_manager" 
   cleanup_packages "$pkg_manager"
-  check_reboot_required "$pkg_manager"
 done
+check_reboot_required
