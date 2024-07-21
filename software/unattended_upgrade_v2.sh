@@ -91,7 +91,7 @@ list_packages() {
     esac
 
     if [ "$count" -gt 0 ]; then
-      message=$(printf "There are %s %s packages to be installed:\n%s" "$count" "$packagetype" "$packagelist")
+      message=$(printf "There are $count $packagetype packages to be installed: \n $packagelist")
       pushbullet_message "$event" "$message"
       install_packages "$pkg_manager"
     fi
