@@ -54,23 +54,23 @@ send_file() {
 # Function to perform badblocks check
 function badblocks_check {
     send_message "Badblocks Check" "Performing badblocks check on $1..."
-    sudo badblocks -v $1
+    badblocks -v $1
 }
 
 # Function to perform SMART test
 function smart_test {
     send_message "SMART Test" "Performing SMART test on $1..."
     if [[ $1 == /dev/nvme* ]]; then
-        sudo nvme smart-log $1
+        nvme smart-log $1
     else
-        sudo smartctl -t long $1
+        smartctl -t long $1
     fi
 }
 
 # Function to check partition errors on SD cards
 function fsck_check {
     send_message "Partition Error Check" "Checking partition errors on $1..."
-    sudo fsck -n $1
+    fsck -n $1
 }
 
 # Function to clean system logs
@@ -100,19 +100,19 @@ function perform_checks {
 # Function to perform btrfs balance
 function btrfs_balance {
     send_message "Btrfs Balance" "Performing btrfs balance on $1..."
-    sudo btrfs balance start -dusage=50 $1
+    btrfs balance start -dusage=50 $1
 }
 
 # Function to perform ext4 filesystem check
 function ext4_fsck {
     send_message "Ext4 Filesystem Check" "Performing ext4 filesystem check on $1..."
-    sudo e2fsck -f $1
+    e2fsck -f $1
 }
 
 # Function to perform xfs filesystem check
 function xfs_check {
     send_message "XFS Check" "Performing XFS check on $1..."
-    sudo xfs_check $1
+    xfs_check $1
 }
 
 # Send start message
