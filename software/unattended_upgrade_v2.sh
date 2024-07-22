@@ -50,6 +50,7 @@ update_packages() {
       dnf) dnf check-update ;;
       zypper) zypper refresh ;;
       pacman) pacman -Sy ;;
+      npm) npm outdated -g ;;
     esac
   fi
 }
@@ -64,30 +65,35 @@ list_packages() {
   
   if command -v "$pkg_manager" >/dev/null 2>&1; then
     case $pkg_manager in
-      apt) packagelist=$(apt list --upgradable 2>/dev/null | awk -F'[: /]' 'NR>2 {print $1, $8, ">", $3}')
-           packagetype=$(echo apt)
-           count=$(echo -n "$packagelist" | grep -c .)
+          apt) packagelist=$(apt list --upgradable 2>/dev/null | awk -F'[: /]' 'NR>2 {print $1, $8, ">", $3}')
+               packagetype=$(echo apt)
+               count=$(echo -n "$packagelist" | grep -c .)
             ;;
       yum|dnf) packagelist=$(yum -q check-update | sed '/^$/d')
                packagetype=$(echo rpm)
                count=$(echo -n "$packagelist" | grep -c .)
-                ;;
-      zypper) packagelist=$(zypper list-updates | awk 'NR>3 {print $3}')
-              packagetype=$(echo rpm)
-              count=$(echo -n "$packagelist" | grep -c .)
-               ;;
-      pacman) packagelist=$(pacman -Qu)
-              packagetype=$(echo pkg)
-              count=$(echo -n "$packagelist" | grep -c .)
-               ;;
-      snap) packagelist=$(snap refresh --list 2>&1 | grep -vE "All snaps up to date.")
-            packagetype=$(echo snap)
-            count=$(echo -n "$packagelist" | grep -c .)
+             ;;
+       zypper) packagelist=$(zypper list-updates | awk 'NR>3 {print $3}')
+               packagetype=$(echo rpm)
+               count=$(echo -n "$packagelist" | grep -c .)
+             ;;
+       pacman) packagelist=$(pacman -Qu)
+               packagetype=$(echo pkg)
+               count=$(echo -n "$packagelist" | grep -c .)
+             ;;
+         snap) packagelist=$(snap refresh --list 2>&1 | grep -vE "All snaps up to date.")
+               packagetype=$(echo snap)
+               count=$(echo -n "$packagelist" | grep -c .)
              ;;
       flatpak) packagelist=$(flatpak remote-ls --updates 2>&1 | grep -vE "Looking for updates\?|Nothing to do\." | awk 'NR>1 {print $2, $3}' | grep -v "is end-of-life")
                packagetype=$(echo flatpak)
                count=$(echo -n "$packagelist" | grep -c .)
-                ;;
+             ;;
+          npm)  
+               packagelist=$(npm outdated -g --depth=0)
+               packagetype=$(echo npm)
+               count=$(echo -n "$packagelist" | grep -c .)
+             ;;
     esac
 
     if [ "$count" -gt 0 ]; then
@@ -110,6 +116,7 @@ install_packages() {
       pacman) pacman -Suuyy --noconfirm --needed --overwrite="*" ;;
       snap) snap refresh ;;
       flatpak) flatpak update -y ;;
+      npm) npm update -g ;;
     esac
   fi
 }
@@ -133,6 +140,7 @@ cleanup_packages() {
               while read -r snapname revision; do
                 snap remove "$snapname" --revision="$revision"
               done ;;
+         npm) npm) npm cache clean --force ;;
     esac
   fi
 }
