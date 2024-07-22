@@ -140,7 +140,7 @@ cleanup_packages() {
               while read -r snapname revision; do
                 snap remove "$snapname" --revision="$revision"
               done ;;
-         npm) npm) npm cache clean --force ;;
+         npm) npm cache clean --force ;;
     esac
   fi
 }
