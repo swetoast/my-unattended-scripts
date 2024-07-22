@@ -6,8 +6,7 @@ declare -A pkg_managers=( ["apt"]="apt" ["yum"]="yum" ["dnf"]="dnf" ["zypper"]="
 # Load configuration
 config="/opt/etc/unattended_update.conf"
 if [ ! -f "$config" ]; then
-  event="Error"
-  pushbullet_message "$event" "No configuration file present at $config"
+  echo "No configuration file present at $config"
   exit 0
 fi
 source "$config"
