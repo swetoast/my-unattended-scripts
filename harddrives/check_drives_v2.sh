@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
-# Rev 13
-
+# Revision 15
+# Configuration
 CONFIG=/opt/etc/unattended_update.conf
-MAX_SIZE=26214400  # 25MB in bytes
 
 # Ensure the script is run as root
 if [ "$(id -u)" != "0" ]; then exec sudo /bin/bash "$0"; fi
@@ -17,14 +16,13 @@ fi
 . "$CONFIG"
 
 # Function to toggle debug setting
-toggle_debug() {
-    [ "$set_debug" = "enabled" ] && set -x || set +x
-}
+[ "$set_debug" = "enabled" ] && set -x || set +x
 
 # Function to send a message
 send_message() {
-    local body=$1
-    local title="HDD Scan on $HOSTNAME"
+    local event=$1
+    local body=$2
+    local title="$HOSTNAME - $event"
     curl -u "$pushbullet_token": https://api.pushbullet.com/v2/pushes -d type=note -d title="$title" -d body="$body"
 }
 
@@ -38,7 +36,7 @@ send_file() {
     if [ $(stat -c%s "$file_path") -le $MAX_SIZE ]; then
         curl -u "$pushbullet_token": https://api.pushbullet.com/v2/pushes -X POST -F type=file -F file_name="$file_name" -F file=@$file_path -F title="$title"
     else
-        send_message "File $file_name is larger than 25MB. Attempting to compress..."
+        send_message "File Compression" "File $file_name is larger than 25MB. Attempting to compress..."
 
         # Compress the file
         gzip -c "$file_path" > "$file_path.gz"
@@ -48,61 +46,98 @@ send_file() {
             curl -u "$pushbullet_token": https://api.pushbullet.com/v2/pushes -X POST -F type=file -F file_name="$file_name.gz" -F file=@$file_path.gz -F title="$title"
         else
             # Send a Pushbullet message indicating that the file is too large
-            send_message "Compressed file $file_name.gz is still larger than 25MB and will not be sent."
+            send_message "File Compression" "Compressed file $file_name.gz is still larger than 25MB and will not be sent."
         fi
     fi
 }
 
-# Function to check filesystem
-check_filesystem() {
-    df -T | awk '/btrfs/ {system("btrfs scrub start "$7)}'
-    df -T | awk '/ext4/ {system("fstrim -Av")}'
+# Function to perform badblocks check
+function badblocks_check {
+    send_message "Badblocks Check" "Performing badblocks check on $1..."
+    sudo badblocks -v $1
+}
+
+# Function to perform SMART test
+function smart_test {
+    send_message "SMART Test" "Performing SMART test on $1..."
+    if [[ $1 == /dev/nvme* ]]; then
+        sudo nvme smart-log $1
+    else
+        sudo smartctl -t long $1
+    fi
+}
+
+# Function to check partition errors on SD cards
+function fsck_check {
+    send_message "Partition Error Check" "Checking partition errors on $1..."
+    sudo fsck -n $1
 }
 
 # Function to clean system logs
 clean_system_logs() {
+    send_message "System Log Cleanup" "Cleaning system logs..."
     journalctl --rotate --vacuum-size=1M
 }
 
-# Function to check drives
-check_drives() {
-    mkdir -p "$LOGS"/blocks
-    mkdir -p "$LOGS"/smart
-    run_disk_check_tool "$PREFAPP" blocks
-    run_smartctl
+# Function to trim ext4 filesystems and scrub btrfs filesystems
+function check_filesystem {
+    send_message "Filesystem Check" "Trimming ext4 filesystems and starting btrfs scrub..."
+    df -T | awk '/btrfs/ {system("btrfs scrub start "$7)}'
+    df -T | awk '/ext4/ {system("fstrim -Av")}'
 }
 
-# Function to run disk check tools
-run_disk_check_tool() {
-    local tool=$1
-    local log_dir=$2
-    if command -v "$tool" &> /dev/null; then
-        for DEVICE in /dev/sd* /dev/nvme* /dev/mmcblk*; do
-            "$tool" scan "$DEVICE" -o "$LOGS/$log_dir/$(basename "$DEVICE").log"
-            chown "$USERNAME":users "$LOGS/$log_dir/$(basename "$DEVICE").log"
-        done
-    fi
+# Function to perform checks on disks
+function perform_checks {
+    local disk_type=$1
+    local disk_path=$2
+    local check_function=$3
+
+    for disk in $disk_path; do
+        $check_function $disk
+    done
 }
 
-# Function to run smartctl
-run_smartctl() {
-    if command -v smartctl &> /dev/null; then
-        for DEVICE in /dev/sd*; do
-            smartctl -H "$DEVICE" | grep -E "PASSED|FAILED" > "$LOGS/smart/$(basename "$DEVICE").log"
-            chown "$USERNAME":users "$LOGS/smart/$(basename "$DEVICE").log"
-            if grep -q "PASSED" "$LOGS/smart/$(basename "$DEVICE").log"; then
-                send_file "$LOGS/smart/$(basename "$DEVICE").log"
-            fi
-            smartctl -t long "$DEVICE"
-        done
-    fi
+# Function to perform btrfs balance
+function btrfs_balance {
+    send_message "Btrfs Balance" "Performing btrfs balance on $1..."
+    sudo btrfs balance start -dusage=50 $1
 }
 
-# Main script execution
-toggle_debug
-send_message "Started a HDD scan on $HOSTNAME on the $(date)"
+# Function to perform ext4 filesystem check
+function ext4_fsck {
+    send_message "Ext4 Filesystem Check" "Performing ext4 filesystem check on $1..."
+    sudo e2fsck -f $1
+}
+
+# Function to perform xfs filesystem check
+function xfs_check {
+    send_message "XFS Check" "Performing XFS check on $1..."
+    sudo xfs_check $1
+}
+
+# Send start message
+send_message "HDD Scan Start" "Started a HDD scan on $HOSTNAME on the $(date)"
+
+# Perform checks
+perform_checks "regular hard drives" "/dev/sd?" "badblocks_check"
+perform_checks "regular hard drives" "/dev/sd?" "smart_test"
+perform_checks "NVMe disks" "/dev/nvme[0-9]n[0-9]" "smart_test"
+perform_checks "SD cards" "/dev/mmcblk[0-9]p[0-9]" "fsck_check"
+
+# Check filesystem state of ext4 and btrfs filesystems and schedule fsck if not clean
+df -T | awk '/ext4|btrfs/ {system(\"./check_filesystem_state \"$7)}'
+
+# Perform btrfs balance on btrfs filesystems
+df -T | awk '/btrfs/ {system(\"./btrfs_balance \"$7)}'
+
+# Perform ext4 filesystem check on ext4 filesystems
+df -T | awk '/ext4/ {system(\"./ext4_fsck \"$7)}'
+
+# Perform xfs filesystem check on xfs filesystems
+df -T | awk '/xfs/ {system(\"./xfs_check \"$7)}'
+
+# Find log files larger than 1k and send them
+find "$LOGS" -maxdepth 1 -type f -size +1k -exec send_file {} \\;
+
+# Clean system logs
 clean_system_logs
-check_drives
-check_filesystem
-find "$LOGS" -maxdepth 1 -type f -size +1k -exec send_file {} \;
-toggle_debug
