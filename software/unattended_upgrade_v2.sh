@@ -18,10 +18,9 @@ fi
 # Declare an associative array of required programs
 declare -A programs=( ["curl"]="curl" ["badblocks"]="badblocks" ["smartctl"]="smartctl" ["nvme"]="nvme" ["e2fsck"]="e2fsck" ["xfs_repair"]="xfs_repair" ["dosfsck"]="dosfsck" ["zpool"]="zpool" ["btrfs"]="btrfs" ["fstrim"]="fstrim" )
 
-# Check for required programs and exit if not available
+# Check for required programs and disregard if not available
 for program in "${!programs[@]}"; do
     if ! command -v "${programs[$program]}" > /dev/null 2>&1; then
-        echo "Required program $program is not available. Skipping."
         programs[$program]=""
     fi
 done
