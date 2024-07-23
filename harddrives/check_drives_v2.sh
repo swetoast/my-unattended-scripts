@@ -61,7 +61,12 @@ smart_test() {
     if [[ $disk == /dev/nvme* ]]; then
         nvme smart-log "$disk" > "$smart_log_file"
     else
-        smartctl -t long "$disk" > "$smart_log_file"
+        # Run the SMART test in the background
+        smartctl -t long "$disk" > "$smart_log_file" &
+        # Get the PID of the SMART test
+        local smart_pid=$!
+        # Wait for the SMART test to complete
+        wait $smart_pid
     fi
     if [ -s "$smart_log_file" ]; then
         send_message "SMART Test" "SMART test completed on $disk. Sending log file..."
@@ -93,7 +98,7 @@ fsck_check() {
                 dosfsck -a "$disk" > "$fsck_log_file"
                 ;;
             zfs)
-                zfs_maintenance "$disk" > "$fsck_log_file"
+                zfs_check "$disk" > "$fsck_log_file"
                 ;;
             *)
                 echo "Unsupported filesystem type: $fs_type"
@@ -122,10 +127,7 @@ fs_maintenance() {
                 trim_ext4 "$disk"
                 ;;
             btrfs)
-                btrfs_balance "$disk"
-                ;;
-            zfs)
-                zfs_maintenance "$disk"
+                btrfs_maintance "$disk"
                 ;;
             *)
                 echo "Unsupported filesystem type for maintenance: $fs_type"
@@ -146,7 +148,7 @@ check_btrfs() {
     btrfs scrub start "$1"
 }
 
-btrfs_balance() {
+btrfs_maintance() {
     send_message "Btrfs Balance" "Performing btrfs balance..."
     btrfs balance start -dusage=50 "$1"
 }
@@ -171,7 +173,7 @@ fat32_maintenance() {
     dosfsck -a "$1"
 }
 
-zfs_maintenance() {
+zfs_check() {
 
     local pool_name
     pool_name=$(zpool list -H -o name)
