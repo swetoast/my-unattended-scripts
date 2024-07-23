@@ -1,7 +1,6 @@
-#!/usr/bin/env bash
-# Revision 15
+#!/bin/bash
 # Configuration
-
+set -x
 CONFIG=/opt/etc/unattended_update.conf
 
 if [ "$(id -u)" != "0" ]; then exec sudo /bin/bash "$0"; fi
@@ -13,8 +12,7 @@ fi
 
 . "$CONFIG"
 
-[ "$set_debug" = "enabled" ] && set -x || set +x
-
+# Function to send messages
 send_message() {
     local event=$1
     local body=$2
@@ -22,6 +20,7 @@ send_message() {
     curl -u "$pushbullet_token": https://api.pushbullet.com/v2/pushes -d type=note -d title="$title" -d body="$body"
 }
 
+# Function to send files
 send_file() {
     local file_path=$1
     local file_name
@@ -44,11 +43,21 @@ send_file() {
     fi
 }
 
+# Function to perform badblocks check
 badblocks_check() {
     local disk=$1
     local badblocks_file="/var/log/badblocks-$disk.log"
     send_message "Badblocks Check" "Performing badblocks check on $disk..."
-    badblocks -v -s -o "$badblocks_file" "$disk"
+    
+    # Run badblocks in the background
+    badblocks -v -s -o "$badblocks_file" "$disk" &
+    
+    # Get the PID of the badblocks command
+    local badblocks_pid=$!
+    
+    # Wait for the badblocks command to complete
+    wait $badblocks_pid
+    
     if [ -s "$badblocks_file" ]; then
         send_message "Badblocks Check" "Badblocks found on $disk. Sending log file..."
         send_file "$badblocks_file"
@@ -57,6 +66,7 @@ badblocks_check() {
     fi
 }
 
+# Function to perform SMART test
 smart_test() {
     local disk=$1
     local smart_log_file="/var/log/smart-$disk.log"
@@ -79,133 +89,78 @@ smart_test() {
     fi
 }
 
+# Function to perform filesystem check
 fsck_check() {
-    local fs_type=$1
-    local disk=$2
-    local fsck_log_file="/var/log/fsck-$disk.log"
-    # Define the filesystem types you want to allow for fsck_check
-    allowed_fs_types=("ext4" "xfs" "btrfs" "vfat" "zfs")
-    if [[ " ${allowed_fs_types[*]} " =~ ${fs_type} ]]; then
-        send_message "Partition Error Check" "Checking partition errors on $disk of type $fs_type..."
-        case $fs_type in
+    # Use df -T to get the filesystem type and mount point for all mounted filesystems
+    df -T | grep -E "ext4|xfs|btrfs|vfat|zfs" | awk '{print $2 " " $7}' | while read -r type mount_point; do
+        send_message "Partition Error Check" "Checking partition errors on $mount_point of type $type..."
+        case $type in
             ext4)
-                ext4_fsck "$disk" > "$fsck_log_file"
+                ext4_fsck "$mount_point"
                 ;;
             xfs)
-                xfs_check "$disk" > "$fsck_log_file"
+                xfs_check "$mount_point"
                 ;;
             btrfs)
-                check_btrfs "$disk" > "$fsck_log_file"
+                check_btrfs "$mount_point"
                 ;;
             vfat)
-                dosfsck -a "$disk" > "$fsck_log_file"
+                dosfsck -a "$mount_point"
                 ;;
             zfs)
-                zfs_check "$disk" > "$fsck_log_file"
+                zfs_check "$mount_point"
                 ;;
             *)
-                echo "Unsupported filesystem type: $fs_type"
+                echo "Unsupported filesystem type: $type"
                 ;;
         esac
-        if [ -s "$fsck_log_file" ]; then
-            send_message "Partition Error Check" "Filesystem check completed on $disk. Sending log file..."
-            send_file "$fsck_log_file"
-        else
-            send_message "Partition Error Check" "No filesystem errors found on $disk."
-        fi
-    else
-        echo "Skipping fsck_check on disk $disk with unsupported filesystem type: $fs_type"
-    fi
+    done
 }
 
+# Function to perform filesystem maintenance
 fs_maintenance() {
-    local fs_type=$1
-    local disk=$2
-    # Define the filesystem types you want to allow for fs_maintenance
-    allowed_fs_types=("ext4" "btrfs" "zfs")
-    if [[ " ${allowed_fs_types[*]} " =~ ${fs_type} ]]; then
-        send_message "Filesystem Maintenance" "Performing maintenance on $disk of type $fs_type..."
-        case $fs_type in
+    # Use df -T to get the filesystem type and mount point for all mounted filesystems
+    df -T | grep -E "ext4|btrfs|zfs" | awk '{print $2 " " $7}' | while read -r type mount_point; do
+        send_message "Filesystem Maintenance" "Performing maintenance on $mount_point of type $type..."
+        case $type in
             ext4)
-                trim_ext4 "$disk"
+                trim_ext4 "$mount_point"
                 ;;
             btrfs)
-                btrfs_maintance "$disk"
+                btrfs_maintance "$mount_point"
                 ;;
             *)
-                echo "Unsupported filesystem type for maintenance: $fs_type"
+                echo "Unsupported filesystem type for maintenance: $type"
                 ;;
         esac
-    else
-        echo "Skipping fs_maintenance on disk $disk with unsupported filesystem type: $fs_type"
-    fi
+    done
 }
 
+# Function to clean system logs
 clean_system_logs() {
     send_message "System Log Cleanup" "Cleaning system logs..."
     journalctl --rotate --vacuum-size=1M
 }
 
-check_btrfs() {
-    send_message "Btrfs Check" "Starting btrfs scrub..."
-    btrfs scrub start -B "$1"
-}
-
-btrfs_maintance() {
-    send_message "Btrfs Balance" "Starting btrfs balance..."
-    btrfs balance start -dusage=5 "$1"
-    while btrfs balance status "$1" | grep -q "Balance on"; do
-        sleep 60
-    done
-}
-
-trim_ext4() {
-    send_message "Ext4 Trim" "Trimming ext4 filesystems..."
-    fstrim -Av "$1"
-}
-
-ext4_fsck() {
-    send_message "Ext4 Filesystem Check" "Performing ext4 filesystem check..."
-    e2fsck -f "$1"
-}
-
-xfs_check() {
-    send_message "XFS Check" "Performing XFS check..."
-    xfs_repair "$1"
-}
-
-fat32_maintenance() {
-    send_message "FAT32 Maintenance" "Performing FAT32 maintenance on $disk..."
-    dosfsck -a "$1"
-}
-
-zfs_check() {
-    local pool_name
-    pool_name=$(zpool list -H -o name)
-    if [ -z "$pool_name" ]; then
-        echo "No ZFS pools found."
-        return 1
-    fi
-    for pool_name in $pool_name; do
-        send_message "ZFS Check" "Starting ZFS scrub on $pool_name..."
-        zpool scrub "$pool_name"
-        while zpool status "$pool_name" | grep -q "scrub in progress"; do
-            sleep 60
-        done
-    done
-}
-
+# Main function
 main() {
-    for disk in /dev/sd? /dev/nvme[0-9]n[0-9] /dev/mmcblk[0-9]p[0-9]; do
+    # Get the device associated with the mount point
+    for device in $(ls /dev/sd[a-z] /dev/mmcblk[0-9]p[0-9] /dev/nvme[0-9]n[0-9]); do
+        # Only run badblocks on HDDs (sd[a-z])
+        if [[ "$device" == /dev/sd[a-z] ]]; then
+            badblocks_check "$device"
+        fi
 
-        badblocks_check "$disk"
-        smart_test "$disk"
- 
-        fs_type=$(blkid -o value -s TYPE "$disk")
-
-        fsck_check "$fs_type" "$disk"
-        fs_maintenance "$fs_type" "$disk"
+        # Skip SMART test on SD cards
+        if [[ "$device" != /dev/mmcblk[0-9]* ]]; then
+            smart_test "$device"
+        fi
     done
+
+    # Perform filesystem check and maintenance
+    fsck_check
+    fs_maintenance
+
     clean_system_logs
 }
 
