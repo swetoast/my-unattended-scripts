@@ -15,12 +15,11 @@ fi
 
 [ "$set_debug" = "enabled" ] && set -x || set +x
 
-# Declare an associative array of required programs
 declare -A programs=( ["curl"]="curl" ["badblocks"]="badblocks" ["smartctl"]="smartctl" ["nvme"]="nvme" ["e2fsck"]="e2fsck" ["xfs_repair"]="xfs_repair" ["dosfsck"]="dosfsck" ["zpool"]="zpool" ["btrfs"]="btrfs" ["fstrim"]="fstrim" )
 
-# Check for required programs and disregard if not available
 for program in "${!programs[@]}"; do
     if ! command -v "${programs[$program]}" > /dev/null 2>&1; then
+        echo "Required program $program is not available. Skipping."
         programs[$program]=""
     fi
 done
@@ -83,12 +82,10 @@ smart_test() {
             nvme smart-log "$disk" > "$smart_log_file"
         fi
     else
-        # Run the SMART test in the background
+
         if [ -n "${programs[smartctl]}" ]; then
             smartctl -t long "$disk" > "$smart_log_file" &
-            # Get the PID of the SMART test
             local smart_pid=$!
-            # Wait for the SMART test to complete
             wait $smart_pid
         fi
     fi
@@ -104,7 +101,7 @@ fsck_check() {
     local fs_type=$1
     local disk=$2
     local fsck_log_file="/var/log/fsck-$disk.log"
-    # Define the filesystem types you want to allow for fsck_check
+
     allowed_fs_types=("ext4" "xfs" "btrfs" "vfat" "zfs")
     if [[ " ${allowed_fs_types[*]} " =~ ${fs_type} ]]; then
         send_message "Partition Error Check" "Checking partition errors on $disk of type $fs_type..."
@@ -152,7 +149,7 @@ fsck_check() {
 fs_maintenance() {
     local fs_type=$1
     local disk=$2
-    # Define the filesystem types you want to allow for fs_maintenance
+
     allowed_fs_types=("ext4" "btrfs" "zfs")
     if [[ " ${allowed_fs_types[*]} " =~ ${fs_type} ]]; then
         send_message "Filesystem Maintenance" "Performing maintenance on $disk of type $fs_type..."
