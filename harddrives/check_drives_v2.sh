@@ -19,7 +19,7 @@ send_message() {
     local event=$1
     local body=$2
     local title="$HOSTNAME - $event"
-    curl -u "$pushbullet_token": https://api.pushbullet.com/v2/pushes -d type=note -d title="$title" -d body="$body"
+    curl -u "$pushbullet_token": [1](https://api.pushbullet.com/v2/pushes) -d type=note -d title="$title" -d body="$body"
 }
 
 send_file() {
@@ -28,15 +28,18 @@ send_file() {
     file_name=$(basename "$file_path")
     local title="Here is a log file from HDD Scans on $HOSTNAME"
 
-    if [ $(stat -c%s "$file_path") -le "$MAX_SIZE" ]; then
-        curl -u "$pushbullet_token": https://api.pushbullet.com/v2/pushes -X POST -F type=file -F file_name="$file_name" -F file=@"$file_path" -F title="$title"
+    # Convert MAX_SIZE from MB to bytes
+    local max_size_bytes=$((max_file_size * 1024 * 1024))
+
+    if [ $(stat -c%s "$file_path") -le "$max_size_bytes" ]; then
+        curl -u "$pushbullet_token": [1](https://api.pushbullet.com/v2/pushes) -X POST -F type=file -F file_name="$file_name" -F file=@"$file_path" -F title="$title"
     else
-        send_message "File Compression" "File $file_name is larger than 25MB. Attempting to compress..."
+        send_message "File Compression" "File $file_name is larger than $max_file_size MB. Attempting to compress..."
         gzip -c "$file_path" > "$file_path.gz"
-        if [ $(stat -c%s "$file_path.gz") -le "$MAX_SIZE" ]; then
-            curl -u "$pushbullet_token": https://api.pushbullet.com/v2/pushes -X POST -F type=file -F file_name="$file_name.gz" -F file=@"$file_path".gz -F title="$title"
+        if [ $(stat -c%s "$file_path.gz") -le "$max_size_bytes" ]; then
+            curl -u "$pushbullet_token": [1](https://api.pushbullet.com/v2/pushes) -X POST -F type=file -F file_name="$file_name.gz" -F file=@"$file_path".gz -F title="$title"
         else
-            send_message "File Compression" "Compressed file $file_name.gz is still larger than 25MB and will not be sent."
+            send_message "File Compression" "Compressed file $file_name.gz is still larger than $max_file_size MB and will not be sent."
         fi
     fi
 }
