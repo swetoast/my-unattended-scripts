@@ -148,12 +148,15 @@ clean_system_logs() {
 
 check_btrfs() {
     send_message "Btrfs Check" "Starting btrfs scrub..."
-    btrfs scrub start "$1"
+    btrfs scrub start -B "$1"
 }
 
 btrfs_maintance() {
-    send_message "Btrfs Balance" "Performing btrfs balance..."
-    btrfs balance start -dusage=50 "$1"
+    send_message "Btrfs Balance" "Starting btrfs balance..."
+    btrfs balance start -dusage=5 "$1"
+    while btrfs balance status "$1" | grep -q "Balance on"; do
+        sleep 60
+    done
 }
 
 trim_ext4() {
@@ -177,7 +180,6 @@ fat32_maintenance() {
 }
 
 zfs_check() {
-
     local pool_name
     pool_name=$(zpool list -H -o name)
     if [ -z "$pool_name" ]; then
@@ -187,6 +189,9 @@ zfs_check() {
     for pool_name in $pool_name; do
         send_message "ZFS Check" "Starting ZFS scrub on $pool_name..."
         zpool scrub "$pool_name"
+        while zpool status "$pool_name" | grep -q "scrub in progress"; do
+            sleep 60
+        done
     done
 }
 
