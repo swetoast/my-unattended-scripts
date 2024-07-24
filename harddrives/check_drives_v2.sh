@@ -47,9 +47,11 @@ badblocks_check() {
     local badblocks_file="/var/log/badblocks-$disk.log"
     send_message "Badblocks Check" "Performing badblocks check on $disk..."
     
-    badblocks -v -s -o "$badblocks_file" "$disk" & 
-    local badblocks_pid=$!
-    wait $badblocks_pid
+    if [[ "$disk" == /dev/sd[a-z] ]]; then
+        badblocks -v -s -o "$badblocks_file" "$disk" &
+        local badblocks_pid=$!
+        wait $badblocks_pid 
+    fi   
     
     if [ -s "$badblocks_file" ]; then
         send_message "Badblocks Check" "Badblocks found on $disk. Sending log file..."
@@ -64,14 +66,15 @@ smarttest_check() {
     local disk=$1
     local smart_log_file="/var/log/smart-$disk.log"
     send_message "SMART Test" "Performing SMART test on $disk..."
-    if [[ $disk == /dev/nvme* ]]; then
+    
+    if [[ "$disk" == /dev/nvme[0-9] ]]; then
         nvme smart-log "$disk" > "$smart_log_file"
-    else
-
+    elif [[ "$disk" == /dev/sd[a-z] ]]; then
         smartctl -t long "$disk" > "$smart_log_file" &
         local smart_pid=$!
         wait $smart_pid
     fi
+    
     if [ -s "$smart_log_file" ]; then
         send_message "SMART Test" "SMART test completed on $disk. Sending log file..."
         send_file "$smart_log_file"
@@ -178,19 +181,8 @@ clean_system_logs() {
 
 # Main function
 main() {
-    # Get the device associated with the mount point
-    for device in $(ls /dev/sd[a-z] /dev/mmcblk[0-9]p[0-9] /dev/nvme[0-9]n[0-9]); do
-        # Only run badblocks on HDDs (sd[a-z])
-        if [[ "$device" == /dev/sd[a-z] ]]; then
-            badblocks_check "$device"
-        fi
-
-        # Skip SMART test on SD cards
-        if [[ "$device" != /dev/mmcblk[0-9]* ]]; then
-            smarttest_check "$device"
-        fi
-    done
-
+    badblocks_check
+    smarttest_check
     # Perform filesystem check and maintenance
     fsck_check
     fs_maintenance
