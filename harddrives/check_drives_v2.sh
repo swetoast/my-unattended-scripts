@@ -127,12 +127,6 @@ fs_maintenance() {
     done
 }
 
-# Function to clean system logs
-clean_system_logs() {
-    send_message "System Log Cleanup" "Cleaning system logs..."
-    journalctl --rotate --vacuum-size=1M
-}
-
 btrfs_check() {
     send_message "Btrfs Check" "Starting btrfs scrub..."
     btrfs scrub start "$1"
@@ -174,6 +168,12 @@ btrfs_maintance() {
 ext4_maintance() {
     send_message "Ext4 Trim" "Trimming ext4 filesystems..."
     fstrim -Av "$1"
+}
+
+# Function to clean system logs
+clean_system_logs() {
+    send_message "System Log Cleanup" "Cleaning system logs..."
+    journalctl --rotate --vacuum-size=1M
 }
 
 # Main function
