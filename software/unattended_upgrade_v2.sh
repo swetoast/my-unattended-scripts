@@ -172,9 +172,11 @@ check_reboot_required() {
   done
 
   if [ "$reboot_required" = true ]; then
-    pushbullet_message "$event" "A reboot is required after an update. The system will reboot now."
     if [ "${reboot_after_update:-false}" = true ]; then
+      pushbullet_message "$event" "A reboot is required after an update. The system will reboot now."
       sync; sleep 60; reboot
+    elif [ "${reboot_after_update:-false}" = false ]; then
+      pushbullet_message "$event" "A reboot is required after an update, please restart the system."
     fi
   fi
 }
