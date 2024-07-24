@@ -26,8 +26,6 @@ send_file() {
     local file_name
     file_name=$(basename "$file_path")
     local title="Here is a log file from HDD Scans on $HOSTNAME"
-
-    # Convert MAX_SIZE from MB to bytes
     local max_size_bytes=$((max_file_size * 1024 * 1024))
 
     if [ $(stat -c%s "$file_path") -le "$max_size_bytes" ]; then
@@ -49,13 +47,8 @@ badblocks_check() {
     local badblocks_file="/var/log/badblocks-$disk.log"
     send_message "Badblocks Check" "Performing badblocks check on $disk..."
     
-    # Run badblocks in the background
-    badblocks -v -s -o "$badblocks_file" "$disk" &
-    
-    # Get the PID of the badblocks command
+    badblocks -v -s -o "$badblocks_file" "$disk" & 
     local badblocks_pid=$!
-    
-    # Wait for the badblocks command to complete
     wait $badblocks_pid
     
     if [ -s "$badblocks_file" ]; then
@@ -74,11 +67,9 @@ smart_test() {
     if [[ $disk == /dev/nvme* ]]; then
         nvme smart-log "$disk" > "$smart_log_file"
     else
-        # Run the SMART test in the background
+
         smartctl -t long "$disk" > "$smart_log_file" &
-        # Get the PID of the SMART test
         local smart_pid=$!
-        # Wait for the SMART test to complete
         wait $smart_pid
     fi
     if [ -s "$smart_log_file" ]; then
@@ -96,16 +87,16 @@ fsck_check() {
         send_message "Partition Error Check" "Checking partition errors on $mount_point of type $type..."
         case $type in
             ext4)
-                ext4_fsck "$mount_point"
+                ext4_check "$mount_point"
                 ;;
             xfs)
                 xfs_check "$mount_point"
                 ;;
             btrfs)
-                check_btrfs "$mount_point"
+                btrfs_check "$mount_point"
                 ;;
             vfat)
-                dosfsck -a "$mount_point"
+                vfat_check "$mount_point"
                 ;;
             zfs)
                 zfs_check "$mount_point"
@@ -124,7 +115,7 @@ fs_maintenance() {
         send_message "Filesystem Maintenance" "Performing maintenance on $mount_point of type $type..."
         case $type in
             ext4)
-                trim_ext4 "$mount_point"
+                ext4_maintance "$mount_point"
                 ;;
             btrfs)
                 btrfs_maintance "$mount_point"
@@ -140,6 +131,49 @@ fs_maintenance() {
 clean_system_logs() {
     send_message "System Log Cleanup" "Cleaning system logs..."
     journalctl --rotate --vacuum-size=1M
+}
+
+btrfs_check() {
+    send_message "Btrfs Check" "Starting btrfs scrub..."
+    btrfs scrub start "$1"
+}
+
+ext4_check() {
+    send_message "Ext4 Filesystem Check" "Performing ext4 filesystem check..."
+    e2fsck -f "$1"
+}
+
+xfs_check() {
+    send_message "XFS Check" "Performing XFS check..."
+    xfs_repair "$1"
+}
+
+vfat_check() {
+    send_message "FAT32 Maintenance" "Performing FAT32 maintenance on $disk..."
+    dosfsck -a "$1"
+}
+
+zfs_check() {
+    local pool_name
+    pool_name=$(zpool list -H -o name)
+    if [ -z "$pool_name" ]; then
+        echo "No ZFS pools found."
+        return 1
+    fi
+    for pool_name in $pool_name; do
+        send_message "ZFS Check" "Starting ZFS scrub on $pool_name..."
+        zpool scrub "$pool_name"
+    done
+}
+
+btrfs_maintance() {
+    send_message "Btrfs Balance" "Performing btrfs balance..."
+    btrfs balance start -dusage=50 "$1"
+}
+
+ext4_maintance() {
+    send_message "Ext4 Trim" "Trimming ext4 filesystems..."
+    fstrim -Av "$1"
 }
 
 # Main function
@@ -160,7 +194,6 @@ main() {
     # Perform filesystem check and maintenance
     fsck_check
     fs_maintenance
-
     clean_system_logs
 }
 
