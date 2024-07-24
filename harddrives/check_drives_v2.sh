@@ -60,7 +60,7 @@ badblocks_check() {
 }
 
 # Function to perform SMART test
-smart_test() {
+smarttest_check() {
     local disk=$1
     local smart_log_file="/var/log/smart-$disk.log"
     send_message "SMART Test" "Performing SMART test on $disk..."
@@ -187,7 +187,7 @@ main() {
 
         # Skip SMART test on SD cards
         if [[ "$device" != /dev/mmcblk[0-9]* ]]; then
-            smart_test "$device"
+            smarttest_check "$device"
         fi
     done
 
