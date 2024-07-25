@@ -60,21 +60,29 @@ badblocks_check() {
     fi
 }
 
-smarttest_check() {
+smartctl_check() {
     local disk=$1
     local smart_log_file="/var/log/smart-$disk.log"
-    send_message "SMART Test" "Performing SMART test on $disk..."
+    
+    # Check if SMART is enabled
+    local smart_status=$(smartctl -i "$disk" | grep "SMART support is: Enabled")
+    if [ -z "$smart_status" ]; then
+        # If SMART is not enabled, enable it
+        smartctl --smart=on --offlineauto=on --saveauto=on "$disk"
+    fi
+
+    send_message "SMART Test" "Pulling SMART data from $disk..."
     
     if [[ "$disk" == /dev/nvme[0-9] ]]; then
         nvme smart-log "$disk" > "$smart_log_file"
     elif [[ "$disk" == /dev/sd[a-z] ]]; then
-        smartctl -t long "$disk" > "$smart_log_file" &
+        smartctl -a "$disk" > "$smart_log_file" &
         local smart_pid=$!
         wait $smart_pid
     fi
     
     if [ -s "$smart_log_file" ]; then
-        send_message "SMART Test" "SMART test completed on $disk. Sending log file..."
+        send_message "SMART Test" "SMART data pulled from $disk. Sending log file..."
         send_file "$smart_log_file"
     else
         send_message "SMART Test" "No SMART data found on $disk."
