@@ -1,6 +1,6 @@
 #!/bin/bash
-# Configuration
-set -x
+# Revision 15
+
 CONFIG=/opt/etc/unattended_update.conf
 
 if [ "$(id -u)" != "0" ]; then exec sudo /bin/bash "$0"; fi
@@ -12,7 +12,8 @@ fi
 
 . "$CONFIG"
 
-# Function to send messages
+[ "${set_debug:-disabled}" = "enabled" ] && set -x || set +x
+
 send_message() {
     local event=$1
     local body=$2
@@ -20,7 +21,6 @@ send_message() {
     curl -u "$pushbullet_token": https://api.pushbullet.com/v2/pushes -d type=note -d title="$title" -d body="$body"
 }
 
-# Function to send files
 send_file() {
     local file_path=$1
     local file_name
@@ -41,7 +41,6 @@ send_file() {
     fi
 }
 
-# Function to perform badblocks check
 badblocks_check() {
     local disk=$1
     local badblocks_file="/var/log/badblocks-$disk.log"
@@ -61,7 +60,6 @@ badblocks_check() {
     fi
 }
 
-# Function to perform SMART test
 smarttest_check() {
     local disk=$1
     local smart_log_file="/var/log/smart-$disk.log"
@@ -83,9 +81,8 @@ smarttest_check() {
     fi
 }
 
-# Function to perform filesystem check
 fsck_check() {
-    # Use df -T to get the filesystem type and mount point for all mounted filesystems
+
     df -T | grep -E "ext4|xfs|btrfs|vfat|zfs" | awk '{print $2 " " $7}' | while read -r type mount_point; do
         send_message "Partition Error Check" "Checking partition errors on $mount_point of type $type..."
         case $type in
@@ -111,9 +108,8 @@ fsck_check() {
     done
 }
 
-# Function to perform filesystem maintenance
 fs_maintenance() {
-    # Use df -T to get the filesystem type and mount point for all mounted filesystems
+
     df -T | grep -E "ext4|btrfs|zfs" | awk '{print $2 " " $7}' | while read -r type mount_point; do
         send_message "Filesystem Maintenance" "Performing maintenance on $mount_point of type $type..."
         case $type in
@@ -173,7 +169,6 @@ ext4_maintance() {
     fstrim -Av "$1"
 }
 
-# Function to clean system logs
 clean_system_logs() {
     send_message "System Log Cleanup" "Cleaning system logs..."
     journalctl --rotate --vacuum-size=1M
@@ -183,7 +178,6 @@ clean_system_logs() {
 main() {
     badblocks_check
     smarttest_check
-    # Perform filesystem check and maintenance
     fsck_check
     fs_maintenance
     clean_system_logs
