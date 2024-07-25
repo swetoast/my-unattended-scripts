@@ -136,22 +136,30 @@ fs_maintenance() {
 
 btrfs_check() {
     send_message "Btrfs Check" "Starting btrfs scrub..."
-    btrfs scrub start "$1"
+    btrfs scrub start "$1" &
+    local btrfs_pid=$!
+    wait $btrfs_pid
 }
 
 ext4_check() {
     send_message "Ext4 Filesystem Check" "Performing ext4 filesystem check..."
-    e2fsck -f "$1"
+    e2fsck -f "$1" &
+    local ext4_pid=$!
+    wait $ext4_pid
 }
 
 xfs_check() {
     send_message "XFS Check" "Performing XFS check..."
-    xfs_repair "$1"
+    xfs_repair "$1" &
+    local xfs_pid=$!
+    wait $xfs_pid
 }
 
 vfat_check() {
     send_message "FAT32 Maintenance" "Performing FAT32 maintenance on $disk..."
-    dosfsck -a "$1"
+    dosfsck -a "$1" &
+    local vfat_pid=$!
+    wait $vfat_pid
 }
 
 zfs_check() {
@@ -163,18 +171,24 @@ zfs_check() {
     fi
     for pool_name in $pool_name; do
         send_message "ZFS Check" "Starting ZFS scrub on $pool_name..."
-        zpool scrub "$pool_name"
+        zpool scrub "$pool_name" &
+        local zfs_pid=$!
+        wait $zfs_pid
     done
 }
 
 btrfs_maintance() {
     send_message "Btrfs Balance" "Performing btrfs balance..."
-    btrfs balance start -dusage=50 "$1"
+    btrfs balance start -dusage=50 "$1" &
+    local btrfs_pid=$!
+    wait $btrfs_pid
 }
 
 ext4_maintance() {
     send_message "Ext4 Trim" "Trimming ext4 filesystems..."
-    fstrim -Av "$1"
+    fstrim -Av "$1" &
+    local ext4_pid=$!
+    wait $ext4_pid
 }
 
 clean_system_logs() {
