@@ -64,10 +64,8 @@ smartctl_check() {
     local disk=$1
     local smart_log_file="/var/log/smart-$disk.log"
     
-    # Check if SMART is enabled
     local smart_status=$(smartctl -i "$disk" | grep "SMART support is: Enabled")
     if [ -z "$smart_status" ]; then
-        # If SMART is not enabled, enable it
         smartctl --smart=on --offlineauto=on --saveauto=on "$disk"
     fi
 
@@ -77,8 +75,6 @@ smartctl_check() {
         nvme smart-log "$disk" > "$smart_log_file"
     elif [[ "$disk" == /dev/sd[a-z] ]]; then
         smartctl -a "$disk" > "$smart_log_file" &
-        local smart_pid=$!
-        wait $smart_pid
     fi
     
     if [ -s "$smart_log_file" ]; then
