@@ -90,7 +90,6 @@ smartctl_check() {
 }
 
 fsck_check() {
-
     df -T | grep -E "ext4|xfs|btrfs|vfat|zfs" | awk '{print $2 " " $7}' | while read -r type mount_point; do
         send_message "Partition Error Check" "Checking partition errors on $mount_point of type $type..."
         case $type in
@@ -117,7 +116,6 @@ fsck_check() {
 }
 
 fs_maintenance() {
-
     df -T | grep -E "ext4|btrfs|zfs" | awk '{print $2 " " $7}' | while read -r type mount_point; do
         send_message "Filesystem Maintenance" "Performing maintenance on $mount_point of type $type..."
         case $type in
