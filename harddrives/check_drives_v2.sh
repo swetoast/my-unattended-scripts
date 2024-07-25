@@ -197,12 +197,8 @@ clean_system_logs() {
 }
 
 # Main function
-main() {
-    badblocks_check
-    smarttest_check
-    fsck_check
-    fs_maintenance
-    clean_system_logs
-}
-
-main
+badblocks_check
+smarttest_check
+fsck_check
+fs_maintenance
+clean_system_logs
