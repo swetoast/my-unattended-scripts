@@ -129,11 +129,18 @@ fs_maintenance() {
 }
 
 btrfs_check() {
-    send_message "Btrfs Check" "Starting btrfs scrub..."
-    btrfs scrub start "$1" &
-    local btrfs_pid=$!
-    wait $btrfs_pid
+    btrfs scrub start -B "$1"
+    while true; do
+        status=$(btrfs scrub status "$1")
+        if echo $status | grep -q "finished"; then
+            send_message "Btrfs Check" "Scrub finished on $1."
+            break
+        else
+            sleep 60
+        fi
+    done
 }
+
 
 ext4_check() {
     send_message "Ext4 Filesystem Check" "Performing ext4 filesystem check..."
