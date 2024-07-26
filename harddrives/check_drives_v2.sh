@@ -144,23 +144,17 @@ btrfs_check() {
 
 ext4_check() {
     send_message "Ext4 Filesystem Check" "Performing ext4 filesystem check..."
-    e2fsck -f "$1" &
-    local ext4_pid=$!
-    wait $ext4_pid
+    e2fsck -C 0 -f "$1"
 }
 
 xfs_check() {
     send_message "XFS Check" "Performing XFS check..."
-    xfs_repair "$1" &
-    local xfs_pid=$!
-    wait $xfs_pid
+    xfs_repair "$1"
 }
 
 vfat_check() {
     send_message "FAT32 Maintenance" "Performing FAT32 maintenance on $disk..."
-    dosfsck -a "$1" &
-    local vfat_pid=$!
-    wait $vfat_pid
+    dosfsck -a "$1"
 }
 
 zfs_check() {
@@ -172,9 +166,17 @@ zfs_check() {
     fi
     for pool_name in $pool_name; do
         send_message "ZFS Check" "Starting ZFS scrub on $pool_name..."
-        zpool scrub "$pool_name" &
-        local zfs_pid=$!
-        wait $zfs_pid
+        zpool scrub "$pool_name"
+
+        while true; do
+            status=$(zpool status "$pool_name")
+            if echo $status | grep -q "scan: scrub repaired"; then
+                send_message "ZFS Check" "Scrub finished on $pool_name."
+                break
+            else
+                sleep 60
+            fi
+        done
     done
 }
 
