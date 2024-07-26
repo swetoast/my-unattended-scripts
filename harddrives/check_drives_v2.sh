@@ -129,6 +129,7 @@ fs_maintenance() {
 }
 
 btrfs_check() {
+    send_message "Btrfs Check" "Starting btrfs scrub on $1..."
     btrfs scrub start -B "$1"
     while true; do
         status=$(btrfs scrub status "$1")
@@ -180,18 +181,26 @@ zfs_check() {
     done
 }
 
-btrfs_maintance() {
+btrfs_maintenance() {
     send_message "Btrfs Balance" "Performing btrfs balance..."
-    btrfs balance start -dusage=50 "$1" &
-    local btrfs_pid=$!
-    wait $btrfs_pid
+    btrfs balance start -dusage=50 "$1"
+
+    # Wait for the balance to finish
+    while true; do
+        status=$(btrfs balance status "$1")
+        if echo $status | grep -q "No balance"; then
+            send_message "Btrfs Balance" "Balance finished on $1."
+            break
+        else
+            sleep 60
+        fi
+    done
 }
 
-ext4_maintance() {
+ext4_maintenance() {
     send_message "Ext4 Trim" "Trimming ext4 filesystems..."
-    fstrim -Av "$1" &
-    local ext4_pid=$!
-    wait $ext4_pid
+    trim_output=$(fstrim -Av "$1")
+    send_message "Ext4 Trim" "Trimming finished. Output: $trim_output"
 }
 
 clean_system_logs() {
