@@ -150,22 +150,22 @@ check_reboot_required() {
   local reboot_required=false
 
   for pkg_manager in "${!pkg_managers[@]}"; do
-    reboot_required=false  # Reset reboot_required for each package manager
+    reboot_required=false
     if command -v "$pkg_manager" >/dev/null 2>&1; then
       case $pkg_manager in
-        apt) [ -f /var/run/reboot-required ] && reboot_required=true ;;
-        yum|dnf) [ -n "$(needs-restarting -r)" ] && reboot_required=true ;;
+        apt) 
+          [ -f /var/run/reboot-required ] && reboot_required=true 
+          ;;
+        yum|dnf) 
+          [ -n "$(needs-restarting -r)" ] && reboot_required=true 
+          ;;
         pacman) 
-          kernel_pkg=""
-          if uname -r | grep -q 'lts'; then kernel_pkg='linux-lts'
-          elif uname -r | grep -q 'zen'; then kernel_pkg='linux-zen'
-          elif uname -r | grep -q 'hardened'; then kernel_pkg='linux-hardened'
-          elif uname -r | grep -q 'rpi'; then kernel_pkg='linux-rpi'
-          else kernel_pkg='linux'; fi
-          kernel_version=$(uname -r | sed -e 's/-lts//' -e 's/-zen//' -e 's/-hardened//' -e 's/-rpi//')  # Remove the suffixes from the output of uname -r
+          kernel_pkg=$(pacman -Q | grep -E 'linux(-lts|-zen|-hardened|-rpi)? ' | cut -d " " -f 1)
+          kernel_version=$(uname -r | sed -e 's/-lts//' -e 's/-zen//' -e 's/-hardened//' -e 's/-rpi//')
           if [[ $(echo -e "$(pacman -Q $kernel_pkg | cut -d " " -f 2)\n$kernel_version" | sort -Vr | head -n 1) != $kernel_version ]]; then
             reboot_required=true
-          fi ;;
+          fi 
+          ;;
       esac
     fi
     if [ "$reboot_required" = true ]; then break; fi
@@ -175,7 +175,7 @@ check_reboot_required() {
     if [ "${reboot_after_update:-false}" = true ]; then
       pushbullet_message "$event" "A reboot is required after an update. The system will reboot now."
       sync; sleep 60; reboot
-    elif [ "${reboot_after_update:-false}" = false ]; then
+    else
       pushbullet_message "$event" "A reboot is required after an update. The system needs to be rebooted."
     fi
   fi
