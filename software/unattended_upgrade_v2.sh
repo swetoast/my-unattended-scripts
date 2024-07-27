@@ -1,5 +1,5 @@
 #!/bin/bash
-# Revision 10
+# Revision 11
 # Define a list of package managers and their corresponding commands
 declare -A pkg_managers=( ["apt"]="apt" ["yum"]="yum" ["dnf"]="dnf" ["zypper"]="zypper" ["pacman"]="pacman" ["snap"]="snap" ["flatpak"]="flatpak" )
 
