@@ -116,10 +116,10 @@ fs_maintenance() {
         send_message "Filesystem Maintenance" "Performing maintenance on $mount_point of type $type..."
         case $type in
             ext4)
-                ext4_maintance "$mount_point"
+                ext4_maintenance "$mount_point"
                 ;;
             btrfs)
-                btrfs_maintance "$mount_point"
+                btrfs_maintenance "$mount_point"
                 ;;
             *)
                 echo "Unsupported filesystem type for maintenance: $type"
