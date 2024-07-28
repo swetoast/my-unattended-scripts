@@ -21,7 +21,7 @@ QUIET_HOURS_END=8
 HISTORY_DURATION=60
 
 # Initialize the maximum history duration
-MAX_HISTORY_DURATION=120
+MAX_HISTORY_DURATION=180
 
 # Initialize the temperature history array
 TEMPERATURE_HISTORY=()
