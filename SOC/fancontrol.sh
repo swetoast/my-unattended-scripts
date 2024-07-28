@@ -23,6 +23,9 @@ HISTORY_DURATION=60
 # Initialize the temperature history array
 TEMPERATURE_HISTORY=()
 
+# Initialize the sleep duration
+SLEEP_DURATION=1
+
 # Function to get the temperature
 get_temp() {
     local temp
@@ -66,6 +69,7 @@ get_fan_state() {
 control_fan() {
     local state=$1
     local speed=$2
+    local temp=$3
     local fan_state
     fan_state=$(get_fan_state)
     local fan_speed
@@ -77,7 +81,7 @@ control_fan() {
         elif [[ $speed == "low" ]]; then
             pinctrl set "$GPIO_PIN" a1
         fi
-        echo "Fan set to $(get_fan_speed) speed."
+        echo "Fan set to $(get_fan_speed) speed, due to temperature at $temp°C."
         if [[ $(check_overheat) == "overheated" ]]; then
             sleep "$HIGH_SPEED_SPIN_TIME"
         else
@@ -100,11 +104,11 @@ turn_off_fan() {
 check_and_control_fan() {
     local temp=$1
     if [[ $(check_overheat) == "overheated" ]]; then
-        control_fan "on" "high"
+        control_fan "on" "high" "$temp"
     elif (( temp > HIGH_THRESHOLD )); then
-        control_fan "on" "high"
+        control_fan "on" "high" "$temp"
     elif (( temp > MEDIUM_THRESHOLD )); then
-        control_fan "on" "low"
+        control_fan "on" "low" "$temp"
     else
         turn_off_fan
     fi
@@ -140,7 +144,19 @@ while true; do
     # If the current hour is within the quiet hours, turn off the fan and sleep until the end of the quiet hours
     if (( CURRENT_HOUR >= QUIET_HOURS_START || CURRENT_HOUR < QUIET_HOURS_END )); then
         turn_off_fan
-        sleep $(( (24 + QUIET_HOURS_END - CURRENT_HOUR) % 24 * 3600 ))
+        if (( CURRENT_HOUR >= QUIET_HOURS_START )); then
+            # Calculate the remaining time until midnight
+            SECONDS_UNTIL_MIDNIGHT=$(( (24 - CURRENT_HOUR) * 3600 - $(date +%-M) * 60 - $(date +%-S) ))
+            # Calculate the remaining time from midnight to the end of quiet hours
+            SECONDS_UNTIL_END_OF_QUIET_HOURS=$(( QUIET_HOURS_END * 3600 ))
+            # Total sleep time
+            SLEEP_TIME=$(( SECONDS_UNTIL_MIDNIGHT + SECONDS_UNTIL_END_OF_QUIET_HOURS ))
+        else
+            # Calculate the remaining time until the end of quiet hours
+            SECONDS_UNTIL_END_OF_QUIET_HOURS=$(( (QUIET_HOURS_END - CURRENT_HOUR) * 3600 - $(date +%-M) * 60 - $(date +%-S) ))
+            SLEEP_TIME=$SECONDS_UNTIL_END_OF_QUIET_HOURS
+        fi
+        sleep "$SLEEP_TIME"
         continue
     fi
 
@@ -159,5 +175,12 @@ while true; do
         check_and_control_fan "$MEDIAN_TEMP"
     fi
 
-    sleep 1
+    # Adjust sleep duration based on temperature stability
+    if (( TEMP > HIGH_THRESHOLD || TEMP < MEDIUM_THRESHOLD )); then
+        SLEEP_DURATION=1
+    else
+        SLEEP_DURATION=5
+    fi
+
+    sleep "$SLEEP_DURATION"
 done
