@@ -27,23 +27,26 @@ check_overheat() {
 # Function to control the fan
 control_fan() {
     local speed=$1
+    local temp=$2
     pinctrl set "$GPIO_PIN" op dl
     pinctrl set "$GPIO_PIN" a"$speed"
+    echo "Fan set to $(get_fan_speed) speed, due to temperature at $temp°C."
     sleep "$([ "$(check_overheat)" == "overheated" ] && echo "$HIGH_SPEED_SPIN_TIME" || echo "$SPIN_TIME")"
 }
 
 # Function to turn off the fan
 turn_off_fan() {
     pinctrl set "$GPIO_PIN" op dh
+    echo "Fan turned off."
 }
 
 # Function to check and control fan based on temperature
 check_and_control_fan() {
     local temp=$1
     if [[ $(check_overheat) == "overheated" || $temp -gt $HIGH_THRESHOLD ]]; then
-        control_fan 2
+        control_fan 2 "$temp"
     elif (( temp > MEDIUM_THRESHOLD )); then
-        control_fan 1
+        control_fan 1 "$temp"
     else
         turn_off_fan
     fi
@@ -53,9 +56,9 @@ check_and_control_fan() {
 update_temp_history() {
     local temp=$1
     if [ ${#TEMPERATURE_HISTORY[@]} -ge $HISTORY_DURATION ]; then
-        TEMPERATURE_HISTORY=("${TEMPERATURE_HISTORY[@]:1}") # Remove the oldest temperature
+        TEMPERATURE_HISTORY=("${TEMPERATURE_HISTORY[@]:1}")
     fi
-    TEMPERATURE_HISTORY+=("$temp") # Add the new temperature to the end of the array
+    TEMPERATURE_HISTORY+=("$temp")
 }
 
 # Function to calculate the median temperature
