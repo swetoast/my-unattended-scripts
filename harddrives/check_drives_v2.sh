@@ -41,168 +41,119 @@ send_file() {
     fi
 }
 
-badblocks_check() {
-    local disk=$1
-    local badblocks_file="/var/log/badblocks-$disk.log"
-    send_message "Badblocks Check" "Performing badblocks check on $disk..."
-    
-    if [[ "$disk" == /dev/sd[a-z] ]]; then
-        badblocks -v -s -o "$badblocks_file" "$disk" &
-        local badblocks_pid=$!
-        wait $badblocks_pid 
-    fi   
-    
-    if [ -s "$badblocks_file" ]; then
-        send_message "Badblocks Check" "Badblocks found on $disk. Sending log file..."
-        send_file "$badblocks_file"
+# Function to perform scrub operation
+scrub_btrfs() {
+    local mountpoint=$1
+    send_message "Scrub Operation" "Starting scrub operation on $mountpoint"
+    btrfs scrub start -Bd $mountpoint &
+    local pid=$!
+    while ps -p $pid > /dev/null; do sleep 1; done
+    if [ $? -ne 0 ]; then
+        send_message "Scrub Operation" "Scrub operation failed on $mountpoint"
     else
-        send_message "Badblocks Check" "No badblocks found on $disk."
+        send_message "Scrub Operation" "Scrub operation completed on $mountpoint"
     fi
 }
 
-smartctl_check() {
-    local disk=$1
-    local smart_log_file="/var/log/smart-$disk.log"
-    
-    local smart_status=$(smartctl -i "$disk" | grep "SMART support is: Enabled")
-    if [ -z "$smart_status" ]; then
-        smartctl --smart=on --offlineauto=on --saveauto=on "$disk"
-    fi
-
-    send_message "SMART Test" "Pulling SMART data from $disk..."
-    
-    if [[ "$disk" == /dev/nvme[0-9] ]]; then
-        nvme smart-log "$disk" > "$smart_log_file"
-    elif [[ "$disk" == /dev/sd[a-z] ]]; then
-        smartctl -a "$disk" > "$smart_log_file" &
-    fi
-    
-    if [ -s "$smart_log_file" ]; then
-        send_message "SMART Test" "SMART data pulled from $disk. Sending log file..."
-        send_file "$smart_log_file"
+# Function to perform balance operation
+balance_btrfs() {
+    local mountpoint=$1
+    send_message "Balance Operation" "Starting balance operation on $mountpoint"
+    btrfs balance start -dusage=50 -musage=50 $mountpoint &
+    local pid=$!
+    while ps -p $pid > /dev/null; do sleep 1; done
+    if [ $? -ne 0 ]; then
+        send_message "Balance Operation" "Balance operation failed on $mountpoint"
     else
-        send_message "SMART Test" "No SMART data found on $disk."
+        send_message "Balance Operation" "Balance operation completed on $mountpoint"
     fi
 }
 
-fsck_check() {
-    df -T | grep -E "ext4|xfs|btrfs|zfs" | awk '{print $2 " " $7}' | while read -r type mount_point; do
-        send_message "Partition Error Check" "Checking partition errors on $mount_point of type $type..."
-        case $type in
-            ext4)
-                ext4_check "$mount_point"
-                ;;
-            xfs)
-                xfs_check "$mount_point"
-                ;;
-            btrfs)
-                btrfs_check "$mount_point"
-                ;;
-            zfs)
-                zfs_check "$mount_point"
-                ;;
-            *)
-                echo "Unsupported filesystem type: $type"
-                ;;
-        esac
-    done
+# Function to perform defragmentation operation
+defrag_btrfs() {
+    local mountpoint=$1
+    send_message "Defragmentation Operation" "Starting defragmentation operation on $mountpoint"
+    btrfs filesystem defragment $mountpoint &
+    local pid=$!
+    while ps -p $pid > /dev/null; do sleep 1; done
+    if [ $? -ne 0 ]; then
+        send_message "Defragmentation Operation" "Defragmentation operation failed on $mountpoint"
+    else
+        send_message "Defragmentation Operation" "Defragmentation operation completed on $mountpoint"
+    fi
 }
 
-fs_maintenance() {
-    df -T | grep -E "ext4|btrfs" | awk '{print $2 " " $7}' | while read -r type mount_point; do
-        send_message "Filesystem Maintenance" "Performing maintenance on $mount_point of type $type..."
-        case $type in
-            ext4)
-                ext4_maintenance "$mount_point"
-                ;;
-            btrfs)
-                btrfs_maintenance "$mount_point"
-                ;;
-            *)
-                echo "Unsupported filesystem type for maintenance: $type"
-                ;;
-        esac
-    done
+# Function to perform file system check operation for ext4
+check_ext4() {
+    local mountpoint=$1
+    send_message "File System Check" "Starting file system check operation on $mountpoint"
+    fsck -N $mountpoint &
+    local pid=$!
+    while ps -p $pid > /dev/null; do sleep 1; done
+    if [ $? -ne 0 ]; then
+        send_message "File System Check" "File system check operation failed on $mountpoint"
+    else
+        send_message "File System Check" "File system check operation completed on $mountpoint"
+    fi
 }
 
-btrfs_check() {
-    send_message "Btrfs Check" "Starting btrfs scrub on $1..."
-    btrfs scrub start -B "$1"
-    while true; do
-        status=$(btrfs scrub status "$1")
-        if echo $status | grep -q "finished"; then
-            send_message "Btrfs Check" "Scrub finished on $1."
-            break
+# Function to check and enable S.M.A.R.T and generate reports
+check_smart() {
+    local disk=$1
+    local log_file="/var/log/smartctl_report_$(basename "$disk").log"
+    if [[ $disk == /dev/nvme* ]]; then
+        if nvme smart-log "$disk" &> /dev/null; then
+            nvme smart-log "$disk" > "$log_file"
+            send_file "$log_file"
         else
-            sleep 60
+            send_message "SMART Check" "SMART support is not available on $disk"
         fi
-    done
-}
-
-
-ext4_check() {
-    send_message "Ext4 Filesystem Check" "Performing ext4 filesystem check..."
-    e2fsck -C 0 -f "$1"
-}
-
-xfs_check() {
-    send_message "XFS Check" "Performing XFS check..."
-    xfs_repair "$1"
-}
-
-zfs_check() {
-    local pool_name
-    pool_name=$(zpool list -H -o name)
-    if [ -z "$pool_name" ]; then
-        echo "No ZFS pools found."
-        return 1
-    fi
-    for pool_name in $pool_name; do
-        send_message "ZFS Check" "Starting ZFS scrub on $pool_name..."
-        zpool scrub "$pool_name"
-
-        while true; do
-            status=$(zpool status "$pool_name")
-            if echo $status | grep -q "scan: scrub repaired"; then
-                send_message "ZFS Check" "Scrub finished on $pool_name."
-                break
-            else
-                sleep 60
+    else
+        if smartctl -i "$disk" | grep -q -E "SMART support is: Available|SMART/Health Information"; then
+            if ! smartctl -i "$disk" | grep -q "SMART support is: Enabled"; then
+                smartctl --smart=on --offlineauto=on --saveauto=on "$disk"
             fi
-        done
-    done
-}
-
-btrfs_maintenance() {
-    send_message "Btrfs Balance" "Performing btrfs balance..."
-    btrfs balance start -dusage=50 "$1"
-
-    # Wait for the balance to finish
-    while true; do
-        status=$(btrfs balance status "$1")
-        if echo $status | grep -q "No balance"; then
-            send_message "Btrfs Balance" "Balance finished on $1."
-            break
+            smartctl -a "$disk" > "$log_file"
+            send_file "$log_file"
         else
-            sleep 60
+            send_message "SMART Check" "SMART support is not available on $disk"
         fi
-    done
+    fi
 }
 
-ext4_maintenance() {
-    send_message "Ext4 Trim" "Trimming ext4 filesystems..."
-    trim_output=$(fstrim -Av "$1")
-    send_message "Ext4 Trim" "Trimming finished. Output: $trim_output"
-}
+# Get a list of all partitions and their filesystems for the current device type
+partitions=$(lsblk -f | grep -E 'nvme|sd|mmcblk' | grep -oE '(ext4|btrfs|xfs|vfat|/.*)' | paste -d' ' - -)
 
-clean_system_logs() {
-    send_message "System Log Cleanup" "Cleaning system logs..."
-    journalctl --rotate --vacuum-size=1M
-}
+# Convert the string of partitions into an array
+IFS=$'\n' read -rd '' -a partition_array <<<"$partitions"
 
-# Main function
-badblocks_check
-smarttest_check
-fsck_check
-fs_maintenance
-clean_system_logs
+# Loop through each partition
+for partition_info in "${partition_array[@]}"
+do
+    # Get the file system type and mount point
+    fstype=$(echo $partition_info | awk '{print $1}')
+    mountpoint=$(echo $partition_info | awk '{print $2}')
+
+    send_message "Filesystem Found" "Found $fstype filesystem at mount point: $mountpoint"
+
+    # Check the file system type and perform the appropriate operations
+    case $fstype in
+        btrfs)
+            scrub_btrfs $mountpoint
+            balance_btrfs $mountpoint
+            defrag_btrfs $mountpoint
+            ;;
+        ext4)
+            check_ext4 $mountpoint
+            ;;
+        *)
+            send_message "No Operation" "No maintenance operations defined for $fstype file systems."
+            ;;
+    esac
+done
+
+# Check and enable S.M.A.R.T for all disks
+disks=$(lsblk -dn -o NAME | grep -E '^(sd[a-z]|nvme[0-9]n[0-9])$')
+for disk in $disks; do
+    check_smart "/dev/$disk"
+done
