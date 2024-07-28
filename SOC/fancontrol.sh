@@ -20,6 +20,9 @@ QUIET_HOURS_END=8
 # Define the duration for which temperature data is stored (in seconds)
 HISTORY_DURATION=60
 
+# Initialize the maximum history duration
+MAX_HISTORY_DURATION=180
+
 # Initialize the temperature history array
 TEMPERATURE_HISTORY=()
 
@@ -123,17 +126,13 @@ update_temp_history() {
     TEMPERATURE_HISTORY+=("$temp") # Add the new temperature to the end of the array
 }
 
-# Function to calculate the median temperature
-median_temp() {
-    local temps
-    read -a temps <<< "$(printf '%d\n' "${TEMPERATURE_HISTORY[@]}" | sort -n)"
-    local count=${#temps[@]}
-    if (( count % 2 == 0 )); then
-        # If there are an even number of temperatures, the median is the average of the two middle values
-        echo $(( (temps[count/2] + temps[count/2 - 1]) / 2 ))
+# Function to adjust history duration based on temperature stability
+adjust_history_duration() {
+    local temp=$1
+    if (( temp > HIGH_THRESHOLD || temp < MEDIUM_THRESHOLD )); then
+        HISTORY_DURATION=60
     else
-        # If there are an odd number of temperatures, the median is the middle value
-        echo "${temps[count/2]}"
+        HISTORY_DURATION=$MAX_HISTORY_DURATION
     fi
 }
 
@@ -162,6 +161,9 @@ while true; do
 
     # Get the temperature in degrees Celsius
     TEMP=$(get_temp)
+
+    # Adjust history duration based on temperature stability
+    adjust_history_duration "$TEMP"
 
     # Update the temperature history
     update_temp_history "$TEMP"
