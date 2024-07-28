@@ -21,7 +21,7 @@ QUIET_HOURS_END=8
 HISTORY_DURATION=60
 
 # Initialize the maximum history duration
-MAX_HISTORY_DURATION=180
+MAX_HISTORY_DURATION=120
 
 # Initialize the temperature history array
 TEMPERATURE_HISTORY=()
@@ -133,6 +133,19 @@ adjust_history_duration() {
         HISTORY_DURATION=60
     else
         HISTORY_DURATION=$MAX_HISTORY_DURATION
+    fi
+}
+
+# Function to calculate the median temperature
+median_temp() {
+    local temps=($(printf '%s\n' "${TEMPERATURE_HISTORY[@]}" | sort -n))
+    local count=${#temps[@]}
+    if (( count % 2 == 0 )); then
+        # If there are an even number of temperatures, the median is the average of the two middle values
+        echo $(( (temps[count/2] + temps[count/2 - 1]) / 2 ))
+    else
+        # If there are an odd number of temperatures, the median is the middle value
+        echo "${temps[count/2]}"
     fi
 }
 
