@@ -41,63 +41,21 @@ send_file() {
     fi
 }
 
-# Function to perform scrub operation
-scrub_btrfs() {
-    local mountpoint=$1
-    send_message "Scrub Operation" "Starting scrub operation on $mountpoint"
-    btrfs scrub start -Bd $mountpoint &
+run_command() {
+    local command=$1
+    local mountpoint=$2
+    local message=$3
+    send_message "$message" "Starting $message on $mountpoint"
+    eval "$command" &
     local pid=$!
     while ps -p $pid > /dev/null; do sleep 1; done
     if [ $? -ne 0 ]; then
-        send_message "Scrub Operation" "Scrub operation failed on $mountpoint"
+        send_message "$message" "$message failed on $mountpoint"
     else
-        send_message "Scrub Operation" "Scrub operation completed on $mountpoint"
+        send_message "$message" "$message completed on $mountpoint"
     fi
 }
 
-# Function to perform balance operation
-balance_btrfs() {
-    local mountpoint=$1
-    send_message "Balance Operation" "Starting balance operation on $mountpoint"
-    btrfs balance start -dusage=50 -musage=50 $mountpoint &
-    local pid=$!
-    while ps -p $pid > /dev/null; do sleep 1; done
-    if [ $? -ne 0 ]; then
-        send_message "Balance Operation" "Balance operation failed on $mountpoint"
-    else
-        send_message "Balance Operation" "Balance operation completed on $mountpoint"
-    fi
-}
-
-# Function to perform defragmentation operation
-defrag_btrfs() {
-    local mountpoint=$1
-    send_message "Defragmentation Operation" "Starting defragmentation operation on $mountpoint"
-    btrfs filesystem defragment $mountpoint &
-    local pid=$!
-    while ps -p $pid > /dev/null; do sleep 1; done
-    if [ $? -ne 0 ]; then
-        send_message "Defragmentation Operation" "Defragmentation operation failed on $mountpoint"
-    else
-        send_message "Defragmentation Operation" "Defragmentation operation completed on $mountpoint"
-    fi
-}
-
-# Function to perform file system check operation for ext4
-check_ext4() {
-    local mountpoint=$1
-    send_message "File System Check" "Starting file system check operation on $mountpoint"
-    fsck -N $mountpoint &
-    local pid=$!
-    while ps -p $pid > /dev/null; do sleep 1; done
-    if [ $? -ne 0 ]; then
-        send_message "File System Check" "File system check operation failed on $mountpoint"
-    else
-        send_message "File System Check" "File system check operation completed on $mountpoint"
-    fi
-}
-
-# Function to check and enable S.M.A.R.T and generate reports
 check_smart() {
     local disk=$1
     local log_file="/var/log/smartctl_report_$(basename "$disk").log"
@@ -105,8 +63,6 @@ check_smart() {
         if nvme smart-log "$disk" &> /dev/null; then
             nvme smart-log "$disk" > "$log_file"
             send_file "$log_file"
-        else
-            send_message "SMART Check" "SMART support is not available on $disk"
         fi
     else
         if smartctl -i "$disk" | grep -q -E "SMART support is: Available|SMART/Health Information"; then
@@ -115,44 +71,29 @@ check_smart() {
             fi
             smartctl -a "$disk" > "$log_file"
             send_file "$log_file"
-        else
-            send_message "SMART Check" "SMART support is not available on $disk"
         fi
     fi
 }
 
-# Get a list of all partitions and their filesystems for the current device type
 partitions=$(lsblk -f | grep -E 'nvme|sd|mmcblk' | grep -oE '(ext4|btrfs|xfs|vfat|/.*)' | paste -d' ' - -)
-
-# Convert the string of partitions into an array
 IFS=$'\n' read -rd '' -a partition_array <<<"$partitions"
 
-# Loop through each partition
-for partition_info in "${partition_array[@]}"
-do
-    # Get the file system type and mount point
+for partition_info in "${partition_array[@]}"; do
     fstype=$(echo $partition_info | awk '{print $1}')
     mountpoint=$(echo $partition_info | awk '{print $2}')
 
-    send_message "Filesystem Found" "Found $fstype filesystem at mount point: $mountpoint"
-
-    # Check the file system type and perform the appropriate operations
     case $fstype in
         btrfs)
-            scrub_btrfs $mountpoint
-            balance_btrfs $mountpoint
-            defrag_btrfs $mountpoint
+            run_command "btrfs scrub start -Bd $mountpoint" $mountpoint "Scrub Operation"
+            run_command "btrfs balance start -dusage=50 -musage=50 $mountpoint" $mountpoint "Balance Operation"
+            run_command "btrfs filesystem defragment $mountpoint" $mountpoint "Defragmentation Operation"
             ;;
         ext4)
-            check_ext4 $mountpoint
-            ;;
-        *)
-            send_message "No Operation" "No maintenance operations defined for $fstype file systems."
+            run_command "fsck -N $mountpoint" $mountpoint "File System Check"
             ;;
     esac
 done
 
-# Check and enable S.M.A.R.T for all disks
 disks=$(lsblk -dn -o NAME | grep -E '^(sd[a-z]|nvme[0-9]n[0-9])$')
 for disk in $disks; do
     check_smart "/dev/$disk"
