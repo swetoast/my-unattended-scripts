@@ -160,8 +160,8 @@ check_reboot_required() {
           [ -n "$(needs-restarting -r)" ] && reboot_required=true 
           ;;
         pacman) 
-          kernel_pkg=$(pacman -Q | grep -E 'linux(-lts|-zen|-hardened|-rpi)? ' | cut -d " " -f 1)
-          kernel_version=$(uname -r | sed -e 's/-lts//' -e 's/-zen//' -e 's/-hardened//' -e 's/-rpi//')
+          kernel_pkg=$(pacman -Q | grep -E 'linux(-lts|-zen|-hardened|-rpi(-16k)?)? ' | cut -d " " -f 1)
+          kernel_version=$(uname -r | sed -e 's/-lts//' -e 's/-zen//' -e 's/-hardened//' -e 's/-rpi//' -e 's/-rpi-16k//')
           if [[ $(echo -e "$(pacman -Q $kernel_pkg | cut -d " " -f 2)\n$kernel_version" | sort -Vr | head -n 1) != $kernel_version ]]; then
             reboot_required=true
           fi 
