@@ -1,5 +1,5 @@
 #!/bin/bash
-# Revision 10 – Fast‑Response Adaptive Fan & Power Controller for NVIDIA GPU
+# Revision 10.1 – Fast‑Response Adaptive Fan & Power Controller for NVIDIA GPU
 # Author: Toast
 
 if [ "$(id -u)" != "0" ]; then exec sudo /bin/bash "$0" "$@"; fi
@@ -102,13 +102,23 @@ function_scale_control () {
             function_store_last_values
         fi
 
-        if [ "$temp" -ge 70 ] || [ "$util" -ge 50 ]; then
-            sleep 10
-        elif [ "$temp" -ge 50 ] || [ "$util" -ge 20 ]; then
-            sleep 20
-        else
-            sleep 30
-        fi
+        # Dynamic sleep calculation
+        MIN_SLEEP=5
+        MAX_SLEEP=30
+        MIN_TEMP=$idle_temp
+        MAX_TEMP=$max_temp
+        MIN_UTIL=0
+        MAX_UTIL=100
+
+        tclamped=$(( temp < MIN_TEMP ? MIN_TEMP : temp > MAX_TEMP ? MAX_TEMP : temp ))
+        uclamped=$(( util < MIN_UTIL ? MIN_UTIL : util > MAX_UTIL ? MAX_UTIL : util ))
+
+        sleep_temp=$(( MAX_SLEEP - ( (tclamped - MIN_TEMP) * (MAX_SLEEP - MIN_SLEEP) / (MAX_TEMP - MIN_TEMP) ) ))
+        sleep_util=$(( MAX_SLEEP - ( (uclamped - MIN_UTIL) * (MAX_SLEEP - MIN_SLEEP) / (MAX_UTIL - MIN_UTIL) ) ))
+
+        sleep_time=$(( sleep_temp < sleep_util ? sleep_temp : sleep_util ))
+
+        sleep $sleep_time
     done
 }
 
