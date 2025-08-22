@@ -1,5 +1,5 @@
 #!/bin/bash
-# Revision 10.1 – Fast‑Response Adaptive Fan & Power Controller for NVIDIA GPU
+# Revision 11 – Fast‑Response Adaptive Fan & Power Controller for NVIDIA GPU
 # Author: Toast
 
 if [ "$(id -u)" != "0" ]; then exec sudo /bin/bash "$0" "$@"; fi
@@ -50,17 +50,17 @@ function_scale_control () {
     local idle_temp=25
     local target_temp=$(nvidia-smi -q -d TEMPERATURE | grep "GPU Target Temp" | grep -oE '[0-9]+' | head -n1)
     local max_temp=$(nvidia-smi -q -d TEMPERATURE | grep "GPU Slowdown Temp" | grep -oE '[0-9]+' | head -n1)
-
     local min_pl=$(nvidia-smi --query-gpu=power.min_limit --format=csv,noheader,nounits | head -n1 | cut -d'.' -f1)
     local max_pl=$(nvidia-smi --query-gpu=power.max_limit --format=csv,noheader,nounits | head -n1 | cut -d'.' -f1)
-
     local min_fan=20 max_fan=100
     local delta_temp=2
     local delta_util=5
     local delta_fan=3
     local delta_pl=5
-
     last_temp=-999; last_util=-999; last_fan=-999; last_pl=-999
+    local notification_sent=0
+    local cooldown_start_time=0
+    local cooldown_duration=300
 
     echo "Target Temp: ${target_temp}°C"
     echo "Slowdown Temp threshold set to ${max_temp}°C"
@@ -68,10 +68,10 @@ function_scale_control () {
     while :; do
         temp=$(gpustat | grep -oE '[0-9]{2}°C' | grep -oE '[0-9]+' | head -n1)
         util=$(function_get_gpu_util)
+        current_time=$(date +%s)
 
         local temp_range=$((target_temp - idle_temp))
         [ "$temp_range" -le 0 ] && temp_range=1
-
         fan=$(( min_fan + ( (temp - idle_temp) * (max_fan - min_fan) / temp_range ) ))
         [ "$fan" -lt "$min_fan" ] && fan=$min_fan
         [ "$fan" -gt "$max_fan" ] && fan=$max_fan
@@ -85,39 +85,47 @@ function_scale_control () {
         change_fan=$(( fan - last_fan ))
         change_pl=$(( pl - last_pl ))
 
+        if [ "$temp" -lt "$max_temp" ] && [ "$notification_sent" -eq 1 ]; then
+            if [ "$cooldown_start_time" -eq 0 ]; then
+                cooldown_start_time=$current_time
+            elif [ $(( current_time - cooldown_start_time )) -ge $cooldown_duration ]; then
+                notification_sent=0
+                cooldown_start_time=0
+                echo "$(date '+%F %T') | Cooldown complete – notification reset"
+            fi
+        elif [ "$temp" -ge "$max_temp" ]; then
+            cooldown_start_time=0
+        fi
+
+        if [ "$temp" -ge "$max_temp" ] && [ "$notification_sent" -eq 0 ]; then
+            function_notification_message
+            notification_sent=1
+            cooldown_start_time=0
+        fi
+
         if [ ${change_temp#-} -ge $delta_temp ] || \
            [ ${change_util#-} -ge $delta_util ] || \
            [ ${change_fan#-} -ge $delta_fan ] || \
            [ ${change_pl#-}  -ge $delta_pl  ] || \
-           [ "$temp" -ge "$max_temp" ] || \
            [ "$last_temp" -eq -999 ]; then
-
             /usr/bin/nvidia-smi -pl $pl >/dev/null 2>&1
-
             DISPLAY=:0 XAUTHORITY=/var/run/lightdm/root/:0 \
                 /usr/bin/nvidia-settings -a "[fan:0]/GPUTargetFanSpeed=$fan" >/dev/null 2>&1
-
             echo "$(date '+%F %T') | Temp ${temp}°C | Util ${util}% | Fan ${fan}% | PL ${pl}W"
-            [ "$temp" -ge "$max_temp" ] && function_notification_message
             function_store_last_values
         fi
 
-        # Dynamic sleep calculation
         MIN_SLEEP=5
         MAX_SLEEP=30
         MIN_TEMP=$idle_temp
         MAX_TEMP=$max_temp
         MIN_UTIL=0
         MAX_UTIL=100
-
         tclamped=$(( temp < MIN_TEMP ? MIN_TEMP : temp > MAX_TEMP ? MAX_TEMP : temp ))
         uclamped=$(( util < MIN_UTIL ? MIN_UTIL : util > MAX_UTIL ? MAX_UTIL : util ))
-
         sleep_temp=$(( MAX_SLEEP - ( (tclamped - MIN_TEMP) * (MAX_SLEEP - MIN_SLEEP) / (MAX_TEMP - MIN_TEMP) ) ))
         sleep_util=$(( MAX_SLEEP - ( (uclamped - MIN_UTIL) * (MAX_SLEEP - MIN_SLEEP) / (MAX_UTIL - MIN_UTIL) ) ))
-
         sleep_time=$(( sleep_temp < sleep_util ? sleep_temp : sleep_util ))
-
         sleep $sleep_time
     done
 }
