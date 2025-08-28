@@ -30,3 +30,7 @@ Make sure these are installed before running.
 
 # Fuzzy text matching for documents
 ./dupe_finder.sh --mode fuzzytext --dir /path/to/docs
+
+# Perceptual hashing with custom similarity threshold
+# Lower threshold = stricter match, higher = more tolerant
+./dupe_finder.sh --mode phash --dir /path/to/images --threshold 3
