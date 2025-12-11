@@ -79,7 +79,7 @@ build_excludes() {
   local args=()
   for d in $EXCLUDE_DIRS; do args+=( "--exclude-dir=$d" ); done
   printf '%s\n' "${args[@]}"
-}  # <-- missing brace fixed
+} 
 
 month_key="$(date +'%Y%m')"
 PB_COUNT_FILE="${PB_STATE_DIR}/pb_pushcount.${month_key}"
@@ -188,15 +188,12 @@ scan_system() {
 
   chown "$USERNAME":"$USERNAME" "$log_file" || true
 
-  # Summary
   summary=$(grep -E '^(Scanned files|Infected files|Data scanned|Time:)' "$log_file" || true)
   infected=$(grep -E '^Infected files:\s*[0-9]+' "$log_file" | awk '{print $3}' || echo "0")
   clean="No"; [[ "$infected" == "0" ]] && clean="Yes"
 
-  # Prepare artifact (compress if needed)
   to_send=$(compress_if_large "$log_file")
 
-  # Push policy (free-plan): one push per run
   if [[ -n "${pushbullet_token}" ]] && budget_allows; then
     if [[ "$infected" != "0" ]]; then
       # Infected: prefer file push, else note
@@ -208,7 +205,6 @@ scan_system() {
           "Host: ${HOSTNAME}\nWhen: $(_ts)\n${summary}\nLog too large for free plan: ${to_send}"
       fi
     else
-      # Clean: only push if mode allows
       if should_push_clean; then
         notify_note "Antivirus scan (clean)" \
           "Host: ${HOSTNAME}\nWhen: $(_ts)\n${summary}\nLog: ${to_send}"
