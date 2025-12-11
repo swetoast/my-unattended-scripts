@@ -186,9 +186,7 @@ send_file_path() {
   fi
 }
 
-# ----------------------------
 # SMART checks
-# ----------------------------
 check_smart() {
   local disk=$1
   local base; base=$(basename "$disk")
@@ -219,7 +217,6 @@ check_smart() {
     fi
   fi
 }
-
 
 # Filesystem maintenance
 # Safer enumeration; preserves spaces in mount paths
@@ -252,7 +249,6 @@ for line in "${FS_LINES[@]}"; do
       ;;
   esac
 done
-
 
 # Disk enumeration for SMART (bounded parallel)
 mapfile -t DISKS < <(lsblk -dn -o NAME,TYPE | awk '$2=="disk"{print "/dev/"$1}')
