@@ -1,4 +1,3 @@
-
 #!/usr/bin/env bash
 # Rev 3.2 — Raspberry Pi throttling/health notifier via Pushbullet (with jq)
 # - Robust bitmask detection (handles combined flags)
