@@ -1,122 +1,407 @@
-#!/bin/bash
-# Revision 15
+#!/usr/bin/env bash
+# Revision 16
 
-CONFIG=/opt/etc/unattended_update.conf
+set -Eeuo pipefail
 
-# Add a summary array to store the results
-declare -A summary
+# Configuration
+CONFIG=${CONFIG:-/opt/etc/unattended_update.conf}
 
-if [ "$(id -u)" != "0" ]; then exec sudo /bin/bash "$0"; fi
+# Defaults if config is missing/partial
+# (All can be overridden from /opt/etc/unattended_update.conf)
 
-if [ ! -f "$CONFIG" ]; then
-    echo "No configuration file present at $CONFIG"
-    exit 0
+# pushbullet_token:
+#   Purpose  : Access token used to authenticate against Pushbullet's API.
+#   Type     : string (non-empty to enable pushing)
+#   Default  : "" (empty => script prints summary to stdout instead of pushing)
+#   Example  : o.xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+pushbullet_token=${pushbullet_token:-""}  # REQUIRED to send pushes
+
+# pb_channel_tag:
+#   Purpose  : Send pushes to a named channel (broadcast to all channel subscribers).
+#   Type     : string (lowercase tag as created in Pushbullet)
+#   Default  : "" (disabled)
+#   Example  : "ops-alerts"
+#   Note     : Set **at most one** of pb_channel_tag / pb_target_device_iden / pb_target_email.
+pb_channel_tag=${pb_channel_tag:-""}
+
+# pb_target_device_iden:
+#   Purpose  : Target a single device by its device "iden".
+#   Type     : string (Pushbullet device iden)
+#   Default  : "" (disabled)
+#   Example  : "u1qSJddxeKwOGuGW"
+#   Note     : Set **at most one** of pb_channel_tag / pb_target_device_iden / pb_target_email.
+pb_target_device_iden=${pb_target_device_iden:-""}
+
+# pb_target_email:
+#   Purpose  : Target a single contact by email (sends to that user).
+#   Type     : string (email address)
+#   Default  : "" (disabled)
+#   Example  : "alerts@example.com"
+#   Note     : Set **at most one** of pb_channel_tag / pb_target_device_iden / pb_target_email.
+pb_target_email=${pb_target_email:-""}
+
+# pb_send_link:
+#   Purpose  : Also send a "link" push (e.g., runbook/dashboard) after the summary note(s).
+#   Type     : boolean-like (true/false)
+#   Default  : false
+#   Example  : true
+pb_send_link=${pb_send_link:-false}
+
+# pb_link_url:
+#   Purpose  : URL used for the optional link push when pb_send_link=true.
+#   Type     : string (valid URL)
+#   Default  : "" (no link push unless set)
+#   Example  : "https://intranet/runbooks/disk-health"
+pb_link_url=${pb_link_url:-""}
+
+# pb_chunk_size:
+#   Purpose  : Maximum characters per Pushbullet note; large summaries are split into chunks.
+#   Type     : integer (approximate safe size for the free plan clients)
+#   Default  : 3500
+#   Tradeoff : Larger chunks mean fewer pushes (good for rate limits) but risk client truncation.
+pb_chunk_size=${pb_chunk_size:-3500}
+
+# pb_experimental_file_push:
+#   Purpose  : Attempt real file uploads via /v2/upload-request and then "file" pushes.
+#   Type     : boolean-like (true/false)
+#   Default  : false (because pure-bash JSON parsing is brittle without jq)
+#   Behavior : When true, the script will try to upload and push log files. On failure, it falls
+#              back to including the local path in the summary note (your original behavior).
+pb_experimental_file_push=${pb_experimental_file_push:-false}
+
+# max_file_size:
+#   Purpose  : Size threshold (MB) for log compression; if a log exceeds this, gzip and attach path.
+#   Type     : integer (MB)
+#   Default  : 8
+#   Example  : 16
+max_file_size=${max_file_size:-8}
+
+# enable_btrfs_balance:
+#   Purpose  : Enable btrfs balance step (duseage/musage capped at 50%).
+#   Type     : boolean-like (true/false)
+#   Default  : false (balance can be disruptive—enable only when needed)
+enable_btrfs_balance=${enable_btrfs_balance:-false}
+
+# enable_btrfs_defrag:
+#   Purpose  : Enable btrfs filesystem defragmentation (recursive).
+#   Type     : boolean-like (true/false)
+#   Default  : false (defrag can be heavy—enable only when needed)
+enable_btrfs_defrag=${enable_btrfs_defrag:-false}
+
+# parallel_smart:
+#   Purpose  : Concurrency cap for SMART checks to avoid I/O storms.
+#   Type     : integer (>=1)
+#   Default  : 2
+#   Example  : 4 on fast/idle systems; keep low for busy/IO-bound hosts.
+parallel_smart=${parallel_smart:-2}
+
+# set_debug:
+#   Purpose  : Turn on bash tracing (set -x) for troubleshooting.
+#   Type     : string ("enabled" or "disabled")
+#   Default  : disabled
+#   Behavior : When "enabled", the script echoes commands as they run.
+set_debug=${set_debug:-disabled}
+
+# Honor external config if present
+if [[ -f "$CONFIG" ]]; then
+  # shellcheck source=/dev/null
+  . "$CONFIG"
 fi
 
-. "$CONFIG"
+[[ "$set_debug" == "enabled" ]] && set -x
 
-[ "${set_debug:-disabled}" = "enabled" ] && set -x || set +x
+# Root check & locking
+if [[ "$(id -u)" -ne 0 ]]; then exec sudo /bin/bash "$0"; fi
 
-send_message() {
-    local event=$1
-    local body=$2
-    local title="$HOSTNAME - $event"
-    # Accumulate messages instead of sending them immediately
-    # Use printf to interpret the newline character
-    summary["$title"]=$(printf "%s\n" "$body")
+LOCK_FD=9
+LOCK_FILE=/var/lock/unattended_update.lock
+exec {LOCK_FD}> "$LOCK_FILE"
+flock -n "$LOCK_FD" || { echo "Another instance is running. Exiting."; exit 0; }
+
+# Dependencies
+need_cmd() { command -v "$1" >/dev/null 2>&1 || echo "Missing '$1'"; }
+missing=()
+for c in curl lsblk awk sed grep paste stat gzip findmnt; do [[ -n "$(need_cmd "$c")" ]] && missing+=("$c"); done
+[[ ${#missing[@]} -gt 0 ]] && echo "Missing dependencies: ${missing[*]}" >&2
+
+# Optional tools
+has_nvme=false; command -v nvme >/dev/null 2>&1 && has_nvme=true
+has_smartctl=false; command -v smartctl >/dev/null 2>&1 && has_smartctl=true
+has_btrfs=false; command -v btrfs >/dev/null 2>&1 && has_btrfs=true
+has_timeout=false; command -v timeout >/dev/null 2>&1 && has_timeout=true
+
+# Summary (order-preserving)
+declare -A summary
+declare -a summary_keys
+add_summary() {
+  local title=$1 body=$2
+  summary["$title"]=$(printf "%s\n" "$body")
+  summary_keys+=("$title")
 }
 
-send_file() {
-    local file_path=$1
-    local file_name
-    file_name=$(basename "$file_path")
-    local title="Here is a log file from HDD Scans on $HOSTNAME"
-    local max_size_bytes=$((max_file_size * 1024 * 1024))
+# Safe command execution
+run_and_capture() {
+  # $1: title, $2: command string, $3: mountpoint (optional), $4: timeout seconds (optional)
+  local title=$1 cmd=$2 mp=${3:-n/a} t=${4:-0}
+  local output exit_status=0
 
-    if [ $(stat -c%s "$file_path") -le "$max_size_bytes" ]; then
-        # Accumulate file path instead of file content
-        send_message "$title" "$file_path"
-    else 
-        send_message "File Compression" "File $file_name is larger than $max_file_size MB. Attempting to compress..."
-        gzip -c "$file_path" > "$file_path.gz"
-        if [ $(stat -c%s "$file_path.gz") -le "$max_size_bytes" ]; then
-            # Accumulate file path instead of file content
-            send_message "$title" "$file_path.gz"
-        else 
-            send_message "File Compression" "Compressed file $file_name.gz is still larger than $max_file_size MB and will not be sent."
-        fi
+  if $has_timeout && (( t > 0 )); then
+    output=$(bash -lc "set -o pipefail; timeout ${t}s $cmd" 2>&1) || exit_status=$?
+  else
+    output=$(bash -lc "set -o pipefail; $cmd" 2>&1) || exit_status=$?
+  fi
+
+  if (( exit_status != 0 )); then
+    add_summary "$title" "$title failed on $mp (exit $exit_status)"
+  else
+    add_summary "$title" "$title completed on $mp"
+  fi
+
+  # Attach trimmed output
+  if [[ -n "$output" ]]; then
+    local trimmed
+    trimmed=$(printf "%s\n" "$output" | sed -e 's/\x0//g' | head -c 20000)
+    add_summary "$title Output ($mp)" "$trimmed"
+  fi
+}
+
+# File helper (path + compression)
+send_file_path() {
+  local file_path=$1
+  local title="Log file from HDD scans on $HOSTNAME"
+  local max_bytes=$(( max_file_size * 1024 * 1024 ))
+  local size; size=$(stat -c %s "$file_path" 2>/dev/null || echo 0)
+
+  if (( size <= max_bytes )); then
+    add_summary "$title" "$file_path"
+  else
+    add_summary "File Compression" "File $(basename "$file_path") > ${max_file_size}MB. Compressing…"
+    gzip -c "$file_path" > "${file_path}.gz" || true
+    local gzsize; gzsize=$(stat -c %s "${file_path}.gz" 2>/dev/null || echo 0)
+    if (( gzsize <= max_bytes )); then
+      add_summary "$title" "${file_path}.gz"
+    else
+      add_summary "File Compression" "Still > ${max_file_size}MB; will not attach."
     fi
+  fi
 }
 
-run_command() {
-    local command=$1
-    local mountpoint=$2
-    local message=$3
-    # Capture the output of the command
-    local output
-    output=$(eval "$command")
-    local exit_status=$?
-    if [ $exit_status -ne 0 ]; then
-        send_message "$message" "$message failed on $mountpoint"
-    else 
-        send_message "$message" "$message completed on $mountpoint"
-    fi
-    # Return the output of the command
-    echo "$output"
-}
-
+# ----------------------------
+# SMART checks
+# ----------------------------
 check_smart() {
-    local disk=$1
-    local log_file="/var/log/smartctl_report_$(basename "$disk").log"
-    if [[ $disk == /dev/nvme* ]]; then
-        if nvme smart-log "$disk" &> /dev/null; then
-            nvme smart-log "$disk" > "$log_file"
-            send_file "$log_file"
-        fi
-    else 
-        if smartctl -i "$disk" | grep -q -E "SMART support is: Available|SMART/Health Information"; then
-            if ! smartctl -i "$disk" | grep -q "SMART support is: Enabled"; then
-                smartctl --smart=on --offlineauto=on --saveauto=on "$disk"
-            fi
-            smartctl -a "$disk" > "$log_file"
-            send_file "$log_file"
-        fi
+  local disk=$1
+  local base; base=$(basename "$disk")
+  local log_file="/var/log/smartctl_report_${base}.log"
+
+  if [[ $disk == /dev/nvme* ]]; then
+    if $has_nvme && nvme id-ctrl "$disk" &>/dev/null; then
+      nvme smart-log "$disk" > "$log_file" 2>&1 || true
+      send_file_path "$log_file"
+      add_summary "NVMe SMART" "Collected SMART for $disk"
+    else
+      add_summary "NVMe SMART" "nvme-cli missing or disk inaccessible: $disk"
     fi
+  else
+    if $has_smartctl; then
+      if smartctl -i "$disk" | grep -q -E "SMART support is: Available|SMART/Health Information"; then
+        if ! smartctl -i "$disk" | grep -q "SMART support is: Enabled"; then
+          smartctl -s on -o on -S on "$disk" || true
+        fi
+        smartctl -a "$disk" > "$log_file" 2>&1 || true
+        send_file_path "$log_file"
+        add_summary "SATA/SAS SMART" "Collected SMART for $disk"
+      else
+        add_summary "SATA/SAS SMART" "SMART not available on $disk"
+      fi
+    else
+      add_summary "SATA/SAS SMART" "smartctl not found; skipping $disk"
+    fi
+  fi
 }
 
-partitions=$(lsblk -f | grep -E 'nvme|sd|mmcblk' | grep -oE '(ext4|btrfs|xfs|vfat|/.*)' | paste -d' ' - -)
-IFS=$'\n' read -rd '' -a partition_array <<<"$partitions"
 
-for partition_info in "${partition_array[@]}"; do
-    fstype=$(echo $partition_info | awk '{print $1}')
-    mountpoint=$(echo $partition_info | awk '{print $2}')
+# Filesystem maintenance
+# Safer enumeration; preserves spaces in mount paths
+mapfile -t FS_LINES < <(lsblk -pnro FSTYPE,MOUNTPOINT | awk 'NF==2 && $2!=""')
+for line in "${FS_LINES[@]}"; do
+  fstype=${line%% *}
+  mountpoint=${line#* }
 
-    case $fstype in
-        btrfs)
-            scrub_output=$(run_command "btrfs scrub start -Bd $mountpoint" $mountpoint "Scrub Operation")
-            send_message "Scrub Output on $mountpoint" "$scrub_output"
-            balance_output=$(run_command "btrfs balance start -dusage=50 -musage=50 $mountpoint" $mountpoint "Balance Operation")
-            send_message "Balance Output on $mountpoint" "$balance_output"
-            defrag_output=$(run_command "btrfs filesystem defragment $mountpoint" $mountpoint "Defragmentation Operation")
-            send_message "Defrag Output on $mountpoint" "$defrag_output"
-            ;;
-        ext4)
-            fsck_output=$(run_command "fsck -N $mountpoint" $mountpoint "File System Check")
-            send_message "FSCK Output on $mountpoint" "$fsck_output"
-            ;;
-    esac
+  case "$fstype" in
+    btrfs)
+      if $has_btrfs; then
+        run_and_capture "Btrfs Scrub" "btrfs scrub start -Bd \"$mountpoint\"" "$mountpoint" 7200
+        [[ "$enable_btrfs_balance" == "true" ]] && \
+          run_and_capture "Btrfs Balance" "btrfs balance start -dusage=50 -musage=50 \"$mountpoint\"" "$mountpoint" 7200
+        [[ "$enable_btrfs_defrag" == "true" ]] && \
+          run_and_capture "Btrfs Defrag" "btrfs filesystem defragment -r \"$mountpoint\"" "$mountpoint" 7200
+      else
+        add_summary "Btrfs" "btrfs tools missing; skipping $mountpoint"
+      fi
+      ;;
+    ext4)
+      dev=$(findmnt -nro SOURCE --target "$mountpoint" || true)
+      [[ -n "$dev" ]] && run_and_capture "Ext4 FSCK (dry-run)" "fsck -N \"$dev\"" "$mountpoint" 120
+      ;;
+    xfs)
+      add_summary "XFS Check" "xfs_repair requires offline; skipping $mountpoint"
+      ;;
+    *)
+      add_summary "FS Skipped" "Skipping $fstype on $mountpoint"
+      ;;
+  esac
 done
 
-disks=$(lsblk -dn -o NAME | grep -E '^(sd[a-z]|nvme[0-9]n[0-9])$')
-for disk in $disks; do
-    check_smart "/dev/$disk"
-done
 
-# At the end of the script, send a summary message
-summary_message="Summary of operations:\n"
-for key in "${!summary[@]}"; do
-    # Use printf to preserve the newlines in each message
-    summary_message+=$(printf "%s:\n%s\n\n" "$key" "${summary[$key]}")
-done
-# Send the accumulated summary message
-curl -u "$pushbullet_token": https://api.pushbullet.com/v2/pushes -d type=note --data-urlencode title="Summary" --data-urlencode body="$summary_message"
+# Disk enumeration for SMART (bounded parallel)
+mapfile -t DISKS < <(lsblk -dn -o NAME,TYPE | awk '$2=="disk"{print "/dev/"$1}')
+if (( ${#DISKS[@]} > 0 )); then
+  add_summary "SMART" "Checking ${#DISKS[@]} disk(s) with parallelism=$parallel_smart"
+  active=0
+  for d in "${DISKS[@]}"; do
+    check_smart "$d" &
+    (( active++ ))
+    if (( active >= parallel_smart )); then
+      wait -n || true
+      (( active-- ))
+    fi
+  done
+  wait || true
+else
+  add_summary "SMART" "No disks found."
+fi
+
+pb_api="https://api.pushbullet.com"
+pb_hdr_auth=( -H "Authorization: Bearer ${pushbullet_token}" )
+pb_hdr_json=( -H "Content-Type: application/json" )
+
+json_escape() {
+  # Escapes " and \ and newlines for JSON strings (basic)
+  sed ':a;N;$!ba;s/\n/\\n/g;s/\\/\\\\/g;s/"/\\"/g'
+}
+
+pb_target_fields() {
+  # Emits JSON target fields based on config
+  local t=""
+  [[ -n "$pb_target_device_iden" ]] && t+="\"device_iden\":\"$pb_target_device_iden\","
+  [[ -n "$pb_target_email" ]] && t+="\"email\":\"$pb_target_email\","
+  [[ -n "$pb_channel_tag" ]] && t+="\"channel_tag\":\"$pb_channel_tag\","
+  printf "%s" "$t"
+}
+
+pb_send_json() {
+  # $1: raw JSON string (already escaped)
+  # returns headers to stdout (rate-limit capture)
+  curl -sS -D - -o /dev/null "${pb_hdr_auth[@]}" "${pb_hdr_json[@]}" \
+    -X POST "$pb_api/v2/pushes" --data-binary "$1"
+}
+
+pb_note() {
+  # $1: title, $2: body
+  local title=$1 body=$2 extra target
+  target=$(pb_target_fields)
+  extra="{${target}\"type\":\"note\",\"title\":\"$(printf "%s" "$title" | json_escape)\",\"body\":\"$(printf "%s" "$body" | json_escape)\"}"
+  pb_send_json "$extra"
+}
+
+pb_link() {
+  # $1: title, $2: body, $3: url (required)
+  local title=$1 body=$2 url=$3 target
+  target=$(pb_target_fields)
+  local payload="{${target}\"type\":\"link\",\"title\":\"$(printf "%s" "$title" | json_escape)\",\"body\":\"$(printf "%s" "$body" | json_escape)\",\"url\":\"$(printf "%s" "$url" | json_escape)\"}"
+  pb_send_json "$payload"
+}
+
+# Experimental: file push (tries /v2/upload-request then multipart upload)
+# Pure-bash JSON parsing is brittle; leave disabled unless needed.
+pb_file_experimental() {
+  local path=$1 fname mime; fname=$(basename "$path")
+  mime=${2:-application/octet-stream}
+  local req="{\"file_name\":\"$(printf "%s" "$fname" | json_escape)\",\"file_type\":\"$mime\"}"
+
+  # Request upload parameters
+  local resp; resp=$(curl -sS "${pb_hdr_auth[@]}" "${pb_hdr_json[@]}" -X POST "$pb_api/v2/upload-request" --data-binary "$req")
+  # Very naive JSON parsing (works with typical response; may break on edge cases)
+  local upload_url file_url
+  upload_url=$(printf '%s' "$resp" | sed -n 's/.*"upload_url":"\([^"]*\)".*/\1/p')
+  file_url=$(printf '%s' "$resp" | sed -n 's/.*"file_url":"\([^"]*\)".*/\1/p')
+
+  if [[ -z "$upload_url" || -z "$file_url" ]]; then
+    add_summary "Pushbullet file" "Failed to parse upload-request; sending path in note instead."
+    return 1
+  fi
+
+  # Minimal multipart form: some responses require extra fields (policy/signature/etc.).
+  # Try simple form first; if it fails, fall back to note.
+  local up
+  up=$(curl -sS -f -X POST "$upload_url" -F "file=@${path}" 2>&1) || {
+    add_summary "Pushbullet file" "Upload failed; sending path in note instead."
+    return 1
+  }
+
+  # Send file push
+  local target; target=$(pb_target_fields)
+  local payload="{${target}\"type\":\"file\",\"file_name\":\"$(printf "%s" "$fname" | json_escape)\",\"file_type\":\"$mime\",\"file_url\":\"$(printf "%s" "$file_url" | json_escape)\",\"body\":\"Uploaded log from $HOSTNAME\"}"
+  pb_send_json "$payload" >/dev/null
+  add_summary "Pushbullet file" "Sent $fname as file push (experimental)."
+}
+
+build_summary() {
+  local msg="Summary of operations on $HOSTNAME\n\n"
+  for key in "${summary_keys[@]}"; do
+    msg+=$(printf "%s:\n%s\n\n" "$key" "${summary[$key]}")
+  done
+  printf "%s" "$msg"
+}
+
+send_summary_pushes() {
+  local summary_message; summary_message=$(build_summary)
+
+  if [[ -z "$pushbullet_token" ]]; then
+    printf "%s\n" "$summary_message"
+    return
+  fi
+
+  # Chunk and send as note(s)
+  local total=${#summary_message} idx=0 part=1
+  while (( idx < total )); do
+    local chunk=${summary_message:idx:pb_chunk_size}
+    local title="Summary ($part) - $HOSTNAME"
+    # capture rate-limit headers once (last chunk)
+    local headers; headers=$(pb_note "$title" "$chunk")
+    idx=$(( idx + pb_chunk_size ))
+    (( part++ ))
+    # show current rate-limit position (best-effort)
+    if (( idx >= total )); then
+      local limit rem reset
+      limit=$(printf '%s' "$headers" | sed -n 's/^X-Ratelimit-Limit: *\([0-9]*\).*/\1/p' | tail -n1)
+      rem=$(printf '%s' "$headers" | sed -n 's/^X-Ratelimit-Remaining: *\([0-9]*\).*/\1/p' | tail -n1)
+      reset=$(printf '%s' "$headers" | sed -n 's/^X-Ratelimit-Reset: *\([0-9]*\).*/\1/p' | tail -n1)
+      [[ -n "$limit" && -n "$rem" ]] && add_summary "Pushbullet rate-limit" "Remaining: ${rem}/${limit} (reset epoch: ${reset:-unknown})"
+    fi
+  done
+
+  # Optional link push (e.g., runbook or dashboard)
+  if [[ "$pb_send_link" == "true" && -n "$pb_link_url" ]]; then
+    pb_link "Runbook/Reference - $HOSTNAME" "See link for details" "$pb_link_url" >/dev/null
+  fi
+}
+
+
+# Optionally send files via PB (experimental)
+send_collected_logs_as_files() {
+  # Collect any "Log file from HDD scans" entries and try to push as files if enabled
+  [[ "$pb_experimental_file_push" == "true" ]] || return 0
+  for key in "${summary_keys[@]}"; do
+    if [[ "$key" == "Log file from HDD scans on $HOSTNAME" ]]; then
+      local path=${summary[$key]}
+      [[ -f "$path" ]] && pb_file_experimental "$path" "text/plain" || true
+    fi
+  done
+}
+
+send_collected_logs_as_files
+send_summary_pushes
+
+exit
