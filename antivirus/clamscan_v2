@@ -237,6 +237,5 @@ on_error() {
 }
 trap on_error ERR
 
-# --- main ---
 ensure_dirs
 expireexpire_old_logs
