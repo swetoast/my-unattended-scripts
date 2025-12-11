@@ -7,7 +7,6 @@ if [[ $(id -u) -ne 0 ]]; then exec sudo /bin/bash "$0" "$@"; fi
 
 CONFIG="/opt/etc/unattended_update.conf"
 if [[ -f "$CONFIG" ]]; then
-  # shellcheck source=/dev/null
   . "$CONFIG"
 else
   echo "No configuration file present at $CONFIG" >&2
