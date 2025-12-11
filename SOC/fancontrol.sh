@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
-# Raspberry Pi fan controller with EMA smoothing, hysteresis, dwell times, and quiet-hours policy.
-# Active-low wiring assumed (drive pin HIGH = OFF, drive LOW = ON).
-# Requires: bash, vcgencmd, pinctrl, awk, grep, logger, flock, date
+# Rev. 4
 
 set -Eeuo pipefail
 
@@ -33,7 +31,6 @@ EMA_TEMP=""           # initialized on first sample
 LAST_CHANGE_EPOCH=0
 LAST_ON_EPOCH=0
 
-# ---------- Helpers ----------
 now_epoch() { date +%s; }
 
 log() { logger -t fanctl "$*"; echo "$*"; }
@@ -42,17 +39,14 @@ require_cmd() {
   command -v "$1" >/dev/null 2>&1 || { echo "Missing dependency: $1"; exit 1; }
 }
 
-# Reads temperature like: 48.0 (°C) from vcgencmd output "temp=48.0'C"
 get_temp() {
   vcgencmd measure_temp | awk -F "[=']" '{print $2}'
 }
 
-# Overheat if throttled flags are set (past or current)
 check_overheat() {
   vcgencmd get_throttled | grep -qE "0x4|0x40000" && echo "overheated" || echo "normal"
 }
 
-# ---------- Fan primitives (ACTIVE-LOW: high=OFF, low=ON) ----------
 fan_off() {
   pinctrl set "$GPIO_PIN" op dh   # drive pin HIGH => OFF (active-low)
   CURRENT_STATE="off"
@@ -73,15 +67,12 @@ fan_high() {
   log "Fan HIGH"
 }
 
-# ---------- Policy & control ----------
 can_change_state() {
   local now
   now=$(now_epoch)
-  # Avoid rapid toggles
   if (( now - LAST_CHANGE_EPOCH < MIN_DWELL_CHANGE )); then
     return 1
   fi
-  # Ensure we don't turn off too soon after turning on
   if [[ "$CURRENT_STATE" != "off" ]] && (( now - LAST_ON_EPOCH < MIN_DWELL_ON )); then
     return 1
   fi
@@ -103,7 +94,6 @@ apply_state() {
   LAST_CHANGE_EPOCH=$(now_epoch)
   [[ "$CURRENT_STATE" != "off" ]] && LAST_ON_EPOCH="$LAST_CHANGE_EPOCH"
 
-  # Post-change dwell; longer if overheated
   local spin="$SPIN_TIME"
   if [[ $(check_overheat) == "overheated" ]]; then
     spin="$HIGH_SPEED_SPIN_TIME"
@@ -111,7 +101,6 @@ apply_state() {
   sleep "$spin" || true
 }
 
-# Decide desired state from EMA temperature with hysteresis
 decide_state() {
   local t="$1"
 
@@ -131,7 +120,6 @@ decide_state() {
     echo "low"; return
   fi
 
-  # Otherwise OFF
   echo "off"
 }
 
@@ -158,17 +146,13 @@ sleep_until_quiet_end() {
 }
 
 cleanup() {
-  # On exit, be conservative; if you prefer fail-safe ON, call fan_low instead.
   fan_off || true
 }
 trap cleanup EXIT INT TERM
 
-# ---------- Single instance guard ----------
-# Use /run if available, fall back to /tmp
 exec 9>/run/fanctl.lock 2>/dev/null || exec 9>/tmp/fanctl.lock
 flock -n 9 || { log "Already running, exiting."; exit 0; }
 
-# ---------- Preconditions ----------
 require_cmd vcgencmd
 require_cmd pinctrl
 require_cmd awk
@@ -179,7 +163,6 @@ require_cmd date
 
 log "fanctl starting; active-low wiring assumed."
 
-# ---------- Main loop ----------
 while true; do
   if in_quiet_hours; then
     if [[ "$QUIET_ALLOW_OVERHEAT_OVERRIDE" == "true" ]] && [[ $(check_overheat) == "overheated" ]]; then
@@ -196,8 +179,7 @@ while true; do
     continue
   fi
 
-  # Temperature sample + EMA smoothing
-  current=$(get_temp)  # e.g., 58.2
+  current=$(get_temp)
   if [[ -z "${EMA_TEMP}" ]]; then
     EMA_TEMP="$current"
   else
@@ -205,7 +187,6 @@ while true; do
       'BEGIN{printf("%.1f", a*t + (1-a)*e)}')
   fi
 
-  # Overheat overrides everything
   if [[ $(check_overheat) == "overheated" ]]; then
     apply_state "high"
     sleep "$SLEEP_DURATION"
