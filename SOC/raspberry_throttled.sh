@@ -1,10 +1,5 @@
 #!/usr/bin/env bash
-# Rev 3.2 — Raspberry Pi throttling/health notifier via Pushbullet (with jq)
-# - Robust bitmask detection (handles combined flags)
-# - Fixed hex->dec conversion
-# - Safer shell options, quoting, and config validation
-# - JSON payload built by jq; auth via Access-Token header
-# - Captures rate-limit headers; returns exit 2 when "NOW" bits are set
+# Rev 5
 
 set -euo pipefail
 
@@ -15,19 +10,12 @@ if [[ ! -f "$CONFIG" ]]; then
   exit 0
 fi
 
-# Expected variables in the config:
-#   pushbullet_token=...           # REQUIRED
-#   set_debug=enabled|disabled     # OPTIONAL
-#   pushbullet_device_id=...       # OPTIONAL (iden of a device to target)
-# shellcheck source=/opt/etc/unattended_update.conf
 source "$CONFIG"
 
-# Debug toggle
 if [[ "${set_debug:-disabled}" == "enabled" ]]; then
   set -x
 fi
 
-# Verify required commands
 for cmd in vcgencmd curl hostname printf jq; do
   if ! command -v "$cmd" >/dev/null 2>&1; then
     echo "Required command '$cmd' not found in PATH"
@@ -35,15 +23,12 @@ for cmd in vcgencmd curl hostname printf jq; do
   fi
 done
 
-# Validate config values
 : "${pushbullet_token:?pushbullet_token must be set in $CONFIG}"
 
-# Collect status safely
 raw_throttled="$(vcgencmd get_throttled 2>/dev/null || true)"   # e.g., "throttled=0x50005"
 throttled_hex="${raw_throttled#throttled=}"
 throttled_hex="${throttled_hex,,}"  # lower-case
 
-# Hex -> decimal (robust; tolerates optional 0x prefix)
 if [[ -n "${throttled_hex}" ]]; then
   throttled_dec=$(( 16#${throttled_hex#0x} ))
 else
@@ -57,10 +42,6 @@ voltage="${voltage_raw#volt=}"
 
 host="$(hostname 2>/dev/null || cat /etc/hostname || echo "unknown-host")"
 
-# Bit flags (Raspberry Pi firmware):
-# 0: undervoltage now; 1: freq cap now; 2: throttled now; 3: soft temp limit now
-# 16..19: historical occurred flags for the above
-
 has_bit() {
   local value="$1" bit="$2"
   (( (value & (1 << bit)) != 0 ))
@@ -68,25 +49,20 @@ has_bit() {
 
 declare -a msgs
 
-# Historical (occurred)
 has_bit "$throttled_dec" 16 && msgs+=("Under-voltage has occurred (voltage: ${voltage:-n/a})")
 has_bit "$throttled_dec" 17 && msgs+=("ARM frequency capping has occurred")
 has_bit "$throttled_dec" 18 && msgs+=("Throttling has occurred")
 has_bit "$throttled_dec" 19 && msgs+=("Soft temperature limit has occurred (temperature: ${temperature:-n/a})")
 
-# Current (ongoing)
 has_bit "$throttled_dec" 0 && msgs+=("Under-voltage detected NOW (voltage: ${voltage:-n/a})")
 has_bit "$throttled_dec" 1 && msgs+=("ARM frequency capping in effect NOW")
 has_bit "$throttled_dec" 2 && msgs+=("Throttling in effect NOW")
 has_bit "$throttled_dec" 3 && msgs+=("Soft temperature limit in effect NOW (temperature: ${temperature:-n/a})")
 
-# If nothing to report, exit quietly
 if [[ ${#msgs[@]} -eq 0 ]]; then
-  echo "No throttling-related conditions detected on ${host} (throttled=${throttled_hex:-0x0})."
   exit 0
 fi
 
-# Compose a single body message (plain text)
 status_summary=$(
   printf "vcgencmd get_throttled: %s\n" "${throttled_hex:-0x0}"
   printf "Voltage: %s | Temperature: %s\n" "${voltage:-n/a}" "${temperature:-n/a}"
@@ -96,11 +72,9 @@ status_summary=$(
   done
 )
 
-# --- Send Pushbullet note using JSON + Access-Token header (recommended by docs) ---
 pushbullet_url="https://api.pushbullet.com/v2/pushes"
 title="Throttling/Power Alert on ${host}"
 
-# Build JSON safely using jq (handles quotes/newlines correctly)
 if [[ -n "${pushbullet_device_id:-}" ]]; then
   json_payload=$(
     jq -n --arg t "$title" --arg b "$status_summary" --arg d "$pushbullet_device_id" \
@@ -116,7 +90,6 @@ fi
 tmp_resp="$(mktemp /tmp/pb_resp.XXXXXX)"
 tmp_hdrs="$(mktemp /tmp/pb_hdrs.XXXXXX)"
 
-# If debug was enabled, avoid leaking the token by disabling xtrace just for curl
 xtrace_was_on=false
 if [[ "${-}" == *x* ]]; then
   xtrace_was_on=true
@@ -131,7 +104,6 @@ http_status=$(
     "$pushbullet_url"
 )
 
-# Re-enable xtrace if it was on
 if $xtrace_was_on; then
   set -x
 fi
@@ -155,12 +127,10 @@ else
   rm -f "$tmp_resp" "$tmp_hdrs"
 fi
 
-# Optional: non-zero exit if any "NOW" bits (0..3) are set, useful for schedulers/monitors
 if has_bit "$throttled_dec" 0 || has_bit "$throttled_dec" 1 || has_bit "$throttled_dec" 2 || has_bit "$throttled_dec" 3; then
   exit 2
 fi
 
-# Disable debug if it was enabled
 if [[ "${set_debug:-disabled}" == "enabled" ]]; then
   set +x
 fi
