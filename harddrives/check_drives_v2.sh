@@ -102,15 +102,12 @@ parallel_smart=${parallel_smart:-2}
 #   Behavior : When "enabled", the script echoes commands as they run.
 set_debug=${set_debug:-disabled}
 
-# Honor external config if present
 if [[ -f "$CONFIG" ]]; then
-  # shellcheck source=/dev/null
   . "$CONFIG"
 fi
 
 [[ "$set_debug" == "enabled" ]] && set -x
 
-# Root check & locking
 if [[ "$(id -u)" -ne 0 ]]; then exec sudo /bin/bash "$0"; fi
 
 LOCK_FD=9
@@ -118,19 +115,16 @@ LOCK_FILE=/var/lock/unattended_update.lock
 exec {LOCK_FD}> "$LOCK_FILE"
 flock -n "$LOCK_FD" || { echo "Another instance is running. Exiting."; exit 0; }
 
-# Dependencies
 need_cmd() { command -v "$1" >/dev/null 2>&1 || echo "Missing '$1'"; }
 missing=()
 for c in curl lsblk awk sed grep paste stat gzip findmnt; do [[ -n "$(need_cmd "$c")" ]] && missing+=("$c"); done
 [[ ${#missing[@]} -gt 0 ]] && echo "Missing dependencies: ${missing[*]}" >&2
 
-# Optional tools
 has_nvme=false; command -v nvme >/dev/null 2>&1 && has_nvme=true
 has_smartctl=false; command -v smartctl >/dev/null 2>&1 && has_smartctl=true
 has_btrfs=false; command -v btrfs >/dev/null 2>&1 && has_btrfs=true
 has_timeout=false; command -v timeout >/dev/null 2>&1 && has_timeout=true
 
-# Summary (order-preserving)
 declare -A summary
 declare -a summary_keys
 add_summary() {
@@ -139,9 +133,7 @@ add_summary() {
   summary_keys+=("$title")
 }
 
-# Safe command execution
 run_and_capture() {
-  # $1: title, $2: command string, $3: mountpoint (optional), $4: timeout seconds (optional)
   local title=$1 cmd=$2 mp=${3:-n/a} t=${4:-0}
   local output exit_status=0
 
@@ -157,7 +149,6 @@ run_and_capture() {
     add_summary "$title" "$title completed on $mp"
   fi
 
-  # Attach trimmed output
   if [[ -n "$output" ]]; then
     local trimmed
     trimmed=$(printf "%s\n" "$output" | sed -e 's/\x0//g' | head -c 20000)
@@ -165,7 +156,6 @@ run_and_capture() {
   fi
 }
 
-# File helper (path + compression)
 send_file_path() {
   local file_path=$1
   local title="Log file from HDD scans on $HOSTNAME"
@@ -186,7 +176,6 @@ send_file_path() {
   fi
 }
 
-# SMART checks
 check_smart() {
   local disk=$1
   local base; base=$(basename "$disk")
@@ -218,8 +207,6 @@ check_smart() {
   fi
 }
 
-# Filesystem maintenance
-# Safer enumeration; preserves spaces in mount paths
 mapfile -t FS_LINES < <(lsblk -pnro FSTYPE,MOUNTPOINT | awk 'NF==2 && $2!=""')
 for line in "${FS_LINES[@]}"; do
   fstype=${line%% *}
@@ -250,7 +237,6 @@ for line in "${FS_LINES[@]}"; do
   esac
 done
 
-# Disk enumeration for SMART (bounded parallel)
 mapfile -t DISKS < <(lsblk -dn -o NAME,TYPE | awk '$2=="disk"{print "/dev/"$1}')
 if (( ${#DISKS[@]} > 0 )); then
   add_summary "SMART" "Checking ${#DISKS[@]} disk(s) with parallelism=$parallel_smart"
@@ -273,12 +259,10 @@ pb_hdr_auth=( -H "Authorization: Bearer ${pushbullet_token}" )
 pb_hdr_json=( -H "Content-Type: application/json" )
 
 json_escape() {
-  # Escapes " and \ and newlines for JSON strings (basic)
   sed ':a;N;$!ba;s/\n/\\n/g;s/\\/\\\\/g;s/"/\\"/g'
 }
 
 pb_target_fields() {
-  # Emits JSON target fields based on config
   local t=""
   [[ -n "$pb_target_device_iden" ]] && t+="\"device_iden\":\"$pb_target_device_iden\","
   [[ -n "$pb_target_email" ]] && t+="\"email\":\"$pb_target_email\","
@@ -287,14 +271,11 @@ pb_target_fields() {
 }
 
 pb_send_json() {
-  # $1: raw JSON string (already escaped)
-  # returns headers to stdout (rate-limit capture)
   curl -sS -D - -o /dev/null "${pb_hdr_auth[@]}" "${pb_hdr_json[@]}" \
     -X POST "$pb_api/v2/pushes" --data-binary "$1"
 }
 
 pb_note() {
-  # $1: title, $2: body
   local title=$1 body=$2 extra target
   target=$(pb_target_fields)
   extra="{${target}\"type\":\"note\",\"title\":\"$(printf "%s" "$title" | json_escape)\",\"body\":\"$(printf "%s" "$body" | json_escape)\"}"
@@ -302,23 +283,18 @@ pb_note() {
 }
 
 pb_link() {
-  # $1: title, $2: body, $3: url (required)
   local title=$1 body=$2 url=$3 target
   target=$(pb_target_fields)
   local payload="{${target}\"type\":\"link\",\"title\":\"$(printf "%s" "$title" | json_escape)\",\"body\":\"$(printf "%s" "$body" | json_escape)\",\"url\":\"$(printf "%s" "$url" | json_escape)\"}"
   pb_send_json "$payload"
 }
 
-# Experimental: file push (tries /v2/upload-request then multipart upload)
-# Pure-bash JSON parsing is brittle; leave disabled unless needed.
 pb_file_experimental() {
   local path=$1 fname mime; fname=$(basename "$path")
   mime=${2:-application/octet-stream}
   local req="{\"file_name\":\"$(printf "%s" "$fname" | json_escape)\",\"file_type\":\"$mime\"}"
 
-  # Request upload parameters
   local resp; resp=$(curl -sS "${pb_hdr_auth[@]}" "${pb_hdr_json[@]}" -X POST "$pb_api/v2/upload-request" --data-binary "$req")
-  # Very naive JSON parsing (works with typical response; may break on edge cases)
   local upload_url file_url
   upload_url=$(printf '%s' "$resp" | sed -n 's/.*"upload_url":"\([^"]*\)".*/\1/p')
   file_url=$(printf '%s' "$resp" | sed -n 's/.*"file_url":"\([^"]*\)".*/\1/p')
@@ -328,15 +304,12 @@ pb_file_experimental() {
     return 1
   fi
 
-  # Minimal multipart form: some responses require extra fields (policy/signature/etc.).
-  # Try simple form first; if it fails, fall back to note.
   local up
   up=$(curl -sS -f -X POST "$upload_url" -F "file=@${path}" 2>&1) || {
     add_summary "Pushbullet file" "Upload failed; sending path in note instead."
     return 1
   }
 
-  # Send file push
   local target; target=$(pb_target_fields)
   local payload="{${target}\"type\":\"file\",\"file_name\":\"$(printf "%s" "$fname" | json_escape)\",\"file_type\":\"$mime\",\"file_url\":\"$(printf "%s" "$file_url" | json_escape)\",\"body\":\"Uploaded log from $HOSTNAME\"}"
   pb_send_json "$payload" >/dev/null
@@ -359,16 +332,13 @@ send_summary_pushes() {
     return
   fi
 
-  # Chunk and send as note(s)
   local total=${#summary_message} idx=0 part=1
   while (( idx < total )); do
     local chunk=${summary_message:idx:pb_chunk_size}
     local title="Summary ($part) - $HOSTNAME"
-    # capture rate-limit headers once (last chunk)
     local headers; headers=$(pb_note "$title" "$chunk")
     idx=$(( idx + pb_chunk_size ))
     (( part++ ))
-    # show current rate-limit position (best-effort)
     if (( idx >= total )); then
       local limit rem reset
       limit=$(printf '%s' "$headers" | sed -n 's/^X-Ratelimit-Limit: *\([0-9]*\).*/\1/p' | tail -n1)
@@ -378,7 +348,6 @@ send_summary_pushes() {
     fi
   done
 
-  # Optional link push (e.g., runbook or dashboard)
   if [[ "$pb_send_link" == "true" && -n "$pb_link_url" ]]; then
     pb_link "Runbook/Reference - $HOSTNAME" "See link for details" "$pb_link_url" >/dev/null
   fi
@@ -387,7 +356,6 @@ send_summary_pushes() {
 
 # Optionally send files via PB (experimental)
 send_collected_logs_as_files() {
-  # Collect any "Log file from HDD scans" entries and try to push as files if enabled
   [[ "$pb_experimental_file_push" == "true" ]] || return 0
   for key in "${summary_keys[@]}"; do
     if [[ "$key" == "Log file from HDD scans on $HOSTNAME" ]]; then
