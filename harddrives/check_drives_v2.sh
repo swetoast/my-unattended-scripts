@@ -1,371 +1,330 @@
 #!/usr/bin/env bash
-# Revision 16
+# Revision 17
 
 set -Eeuo pipefail
+umask 077
+export LC_ALL=C
+export PATH='/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
 
-# Configuration
 CONFIG=${CONFIG:-/opt/etc/unattended_update.conf}
+LOCK_FILE=${LOCK_FILE:-/run/lock/disk_maintenance.lock}
+LOG_DIR=${LOG_DIR:-/var/log/disk-maintenance}
+PUSHBULLET_API='https://api.pushbullet.com/v2'
 
-# Defaults if config is missing/partial
-# (All can be overridden from /opt/etc/unattended_update.conf)
+# Defaults. The configuration file may override these values.
+pushbullet_token=''
+pb_channel_tag=''
+pb_target_device_iden=''
+pb_target_email=''
+pb_send_link=false
+pb_link_url=''
+pb_chunk_size=3500
+pb_upload_logs=false
+max_file_size=8
+enable_btrfs_balance=false
+enable_btrfs_defrag=false
+parallel_smart=2
+set_debug=disabled
+btrfs_timeout=7200
+smart_timeout=300
 
-# pushbullet_token:
-#   Purpose  : Access token used to authenticate against Pushbullet's API.
-#   Type     : string (non-empty to enable pushing)
-#   Default  : "" (empty => script prints summary to stdout instead of pushing)
-#   Example  : o.xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-pushbullet_token=${pushbullet_token:-""}  # REQUIRED to send pushes
-
-# pb_channel_tag:
-#   Purpose  : Send pushes to a named channel (broadcast to all channel subscribers).
-#   Type     : string (lowercase tag as created in Pushbullet)
-#   Default  : "" (disabled)
-#   Example  : "ops-alerts"
-#   Note     : Set **at most one** of pb_channel_tag / pb_target_device_iden / pb_target_email.
-pb_channel_tag=${pb_channel_tag:-""}
-
-# pb_target_device_iden:
-#   Purpose  : Target a single device by its device "iden".
-#   Type     : string (Pushbullet device iden)
-#   Default  : "" (disabled)
-#   Example  : "u1qSJddxeKwOGuGW"
-#   Note     : Set **at most one** of pb_channel_tag / pb_target_device_iden / pb_target_email.
-pb_target_device_iden=${pb_target_device_iden:-""}
-
-# pb_target_email:
-#   Purpose  : Target a single contact by email (sends to that user).
-#   Type     : string (email address)
-#   Default  : "" (disabled)
-#   Example  : "alerts@example.com"
-#   Note     : Set **at most one** of pb_channel_tag / pb_target_device_iden / pb_target_email.
-pb_target_email=${pb_target_email:-""}
-
-# pb_send_link:
-#   Purpose  : Also send a "link" push (e.g., runbook/dashboard) after the summary note(s).
-#   Type     : boolean-like (true/false)
-#   Default  : false
-#   Example  : true
-pb_send_link=${pb_send_link:-false}
-
-# pb_link_url:
-#   Purpose  : URL used for the optional link push when pb_send_link=true.
-#   Type     : string (valid URL)
-#   Default  : "" (no link push unless set)
-#   Example  : "https://intranet/runbooks/disk-health"
-pb_link_url=${pb_link_url:-""}
-
-# pb_chunk_size:
-#   Purpose  : Maximum characters per Pushbullet note; large summaries are split into chunks.
-#   Type     : integer (approximate safe size for the free plan clients)
-#   Default  : 3500
-#   Tradeoff : Larger chunks mean fewer pushes (good for rate limits) but risk client truncation.
-pb_chunk_size=${pb_chunk_size:-3500}
-
-# pb_experimental_file_push:
-#   Purpose  : Attempt real file uploads via /v2/upload-request and then "file" pushes.
-#   Type     : boolean-like (true/false)
-#   Default  : false (because pure-bash JSON parsing is brittle without jq)
-#   Behavior : When true, the script will try to upload and push log files. On failure, it falls
-#              back to including the local path in the summary note (your original behavior).
-pb_experimental_file_push=${pb_experimental_file_push:-false}
-
-# max_file_size:
-#   Purpose  : Size threshold (MB) for log compression; if a log exceeds this, gzip and attach path.
-#   Type     : integer (MB)
-#   Default  : 8
-#   Example  : 16
-max_file_size=${max_file_size:-8}
-
-# enable_btrfs_balance:
-#   Purpose  : Enable btrfs balance step (duseage/musage capped at 50%).
-#   Type     : boolean-like (true/false)
-#   Default  : false (balance can be disruptive—enable only when needed)
-enable_btrfs_balance=${enable_btrfs_balance:-false}
-
-# enable_btrfs_defrag:
-#   Purpose  : Enable btrfs filesystem defragmentation (recursive).
-#   Type     : boolean-like (true/false)
-#   Default  : false (defrag can be heavy—enable only when needed)
-enable_btrfs_defrag=${enable_btrfs_defrag:-false}
-
-# parallel_smart:
-#   Purpose  : Concurrency cap for SMART checks to avoid I/O storms.
-#   Type     : integer (>=1)
-#   Default  : 2
-#   Example  : 4 on fast/idle systems; keep low for busy/IO-bound hosts.
-parallel_smart=${parallel_smart:-2}
-
-# set_debug:
-#   Purpose  : Turn on bash tracing (set -x) for troubleshooting.
-#   Type     : string ("enabled" or "disabled")
-#   Default  : disabled
-#   Behavior : When "enabled", the script echoes commands as they run.
-set_debug=${set_debug:-disabled}
-
-if [[ -f "$CONFIG" ]]; then
-  . "$CONFIG"
+if (( EUID != 0 )); then
+  exec sudo --preserve-env=CONFIG -- "$0" "$@"
 fi
 
-[[ "$set_debug" == "enabled" ]] && set -x
-
-if [[ "$(id -u)" -ne 0 ]]; then exec sudo /bin/bash "$0"; fi
-
-LOCK_FD=9
-LOCK_FILE=/var/lock/unattended_update.lock
-exec {LOCK_FD}> "$LOCK_FILE"
-flock -n "$LOCK_FD" || { echo "Another instance is running. Exiting."; exit 0; }
-
-need_cmd() { command -v "$1" >/dev/null 2>&1 || echo "Missing '$1'"; }
-missing=()
-for c in curl lsblk awk sed grep paste stat gzip findmnt; do [[ -n "$(need_cmd "$c")" ]] && missing+=("$c"); done
-[[ ${#missing[@]} -gt 0 ]] && echo "Missing dependencies: ${missing[*]}" >&2
-
-has_nvme=false; command -v nvme >/dev/null 2>&1 && has_nvme=true
-has_smartctl=false; command -v smartctl >/dev/null 2>&1 && has_smartctl=true
-has_btrfs=false; command -v btrfs >/dev/null 2>&1 && has_btrfs=true
-has_timeout=false; command -v timeout >/dev/null 2>&1 && has_timeout=true
-
-declare -A summary
-declare -a summary_keys
-add_summary() {
-  local title=$1 body=$2
-  summary["$title"]=$(printf "%s\n" "$body")
-  summary_keys+=("$title")
-}
-
-run_and_capture() {
-  local title=$1 cmd=$2 mp=${3:-n/a} t=${4:-0}
-  local output exit_status=0
-
-  if $has_timeout && (( t > 0 )); then
-    output=$(bash -lc "set -o pipefail; timeout ${t}s $cmd" 2>&1) || exit_status=$?
-  else
-    output=$(bash -lc "set -o pipefail; $cmd" 2>&1) || exit_status=$?
+if [[ -f $CONFIG ]]; then
+  config_owner=$(stat -c '%u' "$CONFIG")
+  if [[ $config_owner != 0 ]] || [[ -n $(find "$CONFIG" -maxdepth 0 -perm /022 -print -quit) ]]; then
+    printf 'Unsafe ownership or permissions on %s. Require root ownership and no group/other write access.\n' "$CONFIG" >&2
+    exit 1
   fi
+  # shellcheck source=/dev/null
+  source "$CONFIG"
+fi
 
-  if (( exit_status != 0 )); then
-    add_summary "$title" "$title failed on $mp (exit $exit_status)"
-  else
-    add_summary "$title" "$title completed on $mp"
-  fi
+[[ $set_debug == enabled ]] && set -x
 
-  if [[ -n "$output" ]]; then
-    local trimmed
-    trimmed=$(printf "%s\n" "$output" | sed -e 's/\x0//g' | head -c 20000)
-    add_summary "$title Output ($mp)" "$trimmed"
-  fi
-}
-
-send_file_path() {
-  local file_path=$1
-  local title="Log file from HDD scans on $HOSTNAME"
-  local max_bytes=$(( max_file_size * 1024 * 1024 ))
-  local size; size=$(stat -c %s "$file_path" 2>/dev/null || echo 0)
-
-  if (( size <= max_bytes )); then
-    add_summary "$title" "$file_path"
-  else
-    add_summary "File Compression" "File $(basename "$file_path") > ${max_file_size}MB. Compressing…"
-    gzip -c "$file_path" > "${file_path}.gz" || true
-    local gzsize; gzsize=$(stat -c %s "${file_path}.gz" 2>/dev/null || echo 0)
-    if (( gzsize <= max_bytes )); then
-      add_summary "$title" "${file_path}.gz"
-    else
-      add_summary "File Compression" "Still > ${max_file_size}MB; will not attach."
-    fi
-  fi
-}
-
-check_smart() {
-  local disk=$1
-  local base; base=$(basename "$disk")
-  local log_file="/var/log/smartctl_report_${base}.log"
-
-  if [[ $disk == /dev/nvme* ]]; then
-    if $has_nvme && nvme id-ctrl "$disk" &>/dev/null; then
-      nvme smart-log "$disk" > "$log_file" 2>&1 || true
-      send_file_path "$log_file"
-      add_summary "NVMe SMART" "Collected SMART for $disk"
-    else
-      add_summary "NVMe SMART" "nvme-cli missing or disk inaccessible: $disk"
-    fi
-  else
-    if $has_smartctl; then
-      if smartctl -i "$disk" | grep -q -E "SMART support is: Available|SMART/Health Information"; then
-        if ! smartctl -i "$disk" | grep -q "SMART support is: Enabled"; then
-          smartctl -s on -o on -S on "$disk" || true
-        fi
-        smartctl -a "$disk" > "$log_file" 2>&1 || true
-        send_file_path "$log_file"
-        add_summary "SATA/SAS SMART" "Collected SMART for $disk"
-      else
-        add_summary "SATA/SAS SMART" "SMART not available on $disk"
-      fi
-    else
-      add_summary "SATA/SAS SMART" "smartctl not found; skipping $disk"
-    fi
-  fi
-}
-
-mapfile -t FS_LINES < <(lsblk -pnro FSTYPE,MOUNTPOINT | awk 'NF==2 && $2!=""')
-for line in "${FS_LINES[@]}"; do
-  fstype=${line%% *}
-  mountpoint=${line#* }
-
-  case "$fstype" in
-    btrfs)
-      if $has_btrfs; then
-        run_and_capture "Btrfs Scrub" "btrfs scrub start -Bd \"$mountpoint\"" "$mountpoint" 7200
-        [[ "$enable_btrfs_balance" == "true" ]] && \
-          run_and_capture "Btrfs Balance" "btrfs balance start -dusage=50 -musage=50 \"$mountpoint\"" "$mountpoint" 7200
-        [[ "$enable_btrfs_defrag" == "true" ]] && \
-          run_and_capture "Btrfs Defrag" "btrfs filesystem defragment -r \"$mountpoint\"" "$mountpoint" 7200
-      else
-        add_summary "Btrfs" "btrfs tools missing; skipping $mountpoint"
-      fi
-      ;;
-    ext4)
-      dev=$(findmnt -nro SOURCE --target "$mountpoint" || true)
-      [[ -n "$dev" ]] && run_and_capture "Ext4 FSCK (dry-run)" "fsck -N \"$dev\"" "$mountpoint" 120
-      ;;
-    xfs)
-      add_summary "XFS Check" "xfs_repair requires offline; skipping $mountpoint"
-      ;;
-    *)
-      add_summary "FS Skipped" "Skipping $fstype on $mountpoint"
-      ;;
-  esac
+for command in awk cat curl date find findmnt flock gzip head hostname install lsblk mktemp sed sort stat timeout tr; do
+  command -v "$command" >/dev/null 2>&1 || {
+    printf 'Missing required command: %s\n' "$command" >&2
+    exit 1
+  }
 done
 
-mapfile -t DISKS < <(lsblk -dn -o NAME,TYPE | awk '$2=="disk"{print "/dev/"$1}')
-if (( ${#DISKS[@]} > 0 )); then
-  add_summary "SMART" "Checking ${#DISKS[@]} disk(s) with parallelism=$parallel_smart"
+[[ $pb_chunk_size =~ ^[0-9]+$ ]] && (( pb_chunk_size >= 500 )) || {
+  printf 'pb_chunk_size must be an integer of at least 500.\n' >&2
+  exit 1
+}
+[[ $max_file_size =~ ^[0-9]+$ ]] || {
+  printf 'max_file_size must be a non-negative integer.\n' >&2
+  exit 1
+}
+[[ $parallel_smart =~ ^[0-9]+$ ]] && (( parallel_smart >= 1 )) || {
+  printf 'parallel_smart must be an integer of at least 1.\n' >&2
+  exit 1
+}
+[[ $btrfs_timeout =~ ^[0-9]+$ ]] && [[ $smart_timeout =~ ^[0-9]+$ ]] || {
+  printf 'Timeout values must be non-negative integers.\n' >&2
+  exit 1
+}
+
+target_count=0
+[[ -n $pb_channel_tag ]] && ((target_count += 1))
+[[ -n $pb_target_device_iden ]] && ((target_count += 1))
+[[ -n $pb_target_email ]] && ((target_count += 1))
+(( target_count <= 1 )) || {
+  printf 'Set at most one Pushbullet target.\n' >&2
+  exit 1
+}
+
+exec 9>"$LOCK_FILE"
+if ! flock -n 9; then
+  printf 'Another disk-maintenance run is already active.\n'
+  exit 0
+fi
+
+install -d -m 0750 "$LOG_DIR"
+WORK_DIR=$(mktemp -d /tmp/disk-maintenance.XXXXXX)
+cleanup() { rm -rf -- "$WORK_DIR"; }
+trap cleanup EXIT HUP INT TERM
+
+HOST_NAME=${HOSTNAME:-$(hostname)}
+RUN_STAMP=$(date '+%Y%m%d-%H%M%S')
+SUMMARY_FILE="$WORK_DIR/summary.txt"
+: >"$SUMMARY_FILE"
+
+add_summary() {
+  local title=$1
+  local body=$2
+  printf '%s\n%s\n\n' "$title" "$body" >>"$SUMMARY_FILE"
+}
+
+run_capture() {
+  local title=$1
+  local mountpoint=$2
+  local timeout_seconds=$3
+  shift 3
+  local output_file="$WORK_DIR/command-${RANDOM}-${RANDOM}.log"
+  local rc=0
+
+  if (( timeout_seconds > 0 )); then
+    timeout --signal=TERM --kill-after=30s "${timeout_seconds}s" "$@" >"$output_file" 2>&1 || rc=$?
+  else
+    "$@" >"$output_file" 2>&1 || rc=$?
+  fi
+
+  if (( rc == 0 )); then
+    add_summary "$title" "Completed on $mountpoint."
+  elif (( rc == 124 || rc == 137 )); then
+    add_summary "$title" "Timed out on $mountpoint after ${timeout_seconds} seconds."
+  else
+    add_summary "$title" "Failed on $mountpoint with exit status $rc."
+  fi
+
+  if [[ -s $output_file ]]; then
+    add_summary "$title output ($mountpoint)" "$(head -c 20000 "$output_file" | tr -d '\000')"
+  fi
+  return "$rc"
+}
+
+prepare_log() {
+  local source=$1
+  local size max_bytes compressed
+  max_bytes=$((max_file_size * 1024 * 1024))
+  size=$(stat -c '%s' "$source" 2>/dev/null || printf '0')
+  if (( max_bytes > 0 && size > max_bytes )); then
+    compressed="${source}.gz"
+    gzip -c -- "$source" >"$compressed"
+    printf '%s\n' "$compressed"
+  else
+    printf '%s\n' "$source"
+  fi
+}
+
+smart_worker() {
+  local disk=$1
+  local result=$2
+  local base log rc=0 status report_path
+  base=$(basename "$disk")
+  log="$LOG_DIR/smart-${base}-${RUN_STAMP}.log"
+
+  if ! command -v smartctl >/dev/null 2>&1; then
+    printf 'SMART %s\nsmartctl is not installed; skipped %s.\n\n' "$disk" "$disk" >"$result"
+    return 0
+  fi
+
+  timeout --signal=TERM --kill-after=15s "${smart_timeout}s" smartctl -x "$disk" >"$log" 2>&1 || rc=$?
+  report_path=$(prepare_log "$log")
+
+  if (( rc == 0 )); then
+    status='Completed with no SMART warning bits set.'
+  elif (( rc & 7 )); then
+    status="Unable to complete the SMART query correctly (status $rc)."
+  else
+    status="SMART reported health or error-log warnings (status $rc)."
+  fi
+
+  printf 'SMART %s\n%s\nReport: %s\n\n' "$disk" "$status" "$report_path" >"$result"
+}
+
+if command -v btrfs >/dev/null 2>&1; then
+  declare -A seen_btrfs=()
+  while read -r source target; do
+    [[ -n $target ]] || continue
+    fsid=$(findmnt -nro UUID --target "$target" 2>/dev/null || true)
+    key=${fsid:-$source}
+    [[ -n ${seen_btrfs[$key]:-} ]] && continue
+    seen_btrfs[$key]=1
+
+    run_capture 'Btrfs scrub' "$target" "$btrfs_timeout" btrfs scrub start -Bd -- "$target" || true
+    if [[ $enable_btrfs_balance == true ]]; then
+      run_capture 'Btrfs balance' "$target" "$btrfs_timeout" btrfs balance start -dusage=50 -musage=50 -- "$target" || true
+    fi
+    if [[ $enable_btrfs_defrag == true ]]; then
+      run_capture 'Btrfs defragmentation' "$target" "$btrfs_timeout" btrfs filesystem defragment -r -- "$target" || true
+    fi
+  done < <(findmnt -rn -t btrfs -o SOURCE,TARGET)
+else
+  add_summary 'Btrfs' 'btrfs tools are not installed; Btrfs maintenance was skipped.'
+fi
+
+while read -r source target; do
+  [[ -n $target ]] || continue
+  add_summary "Ext4 $target" "Mounted from $source. Online e2fsck was skipped; perform a real check while unmounted or during boot."
+done < <(findmnt -rn -t ext4 -o SOURCE,TARGET)
+
+while read -r source target; do
+  [[ -n $target ]] || continue
+  add_summary "XFS $target" "Mounted from $source. xfs_repair was skipped because repair requires the filesystem to be unmounted."
+done < <(findmnt -rn -t xfs -o SOURCE,TARGET)
+
+mapfile -t DISKS < <(lsblk -dpnro NAME,TYPE | awk '$2 == "disk" {print $1}' | sort -u)
+if ((${#DISKS[@]} == 0)); then
+  add_summary 'SMART' 'No physical disks were found.'
+else
+  add_summary 'SMART' "Checking ${#DISKS[@]} physical disk(s), with up to $parallel_smart concurrent checks."
+  result_files=()
   active=0
-  for d in "${DISKS[@]}"; do
-    check_smart "$d" &
-    (( active++ ))
+  index=0
+  for disk in "${DISKS[@]}"; do
+    result="$WORK_DIR/smart-result-${index}.txt"
+    result_files+=("$result")
+    smart_worker "$disk" "$result" &
+    ((active += 1))
+    ((index += 1))
     if (( active >= parallel_smart )); then
       wait -n || true
-      (( active-- ))
+      ((active -= 1))
     fi
   done
   wait || true
-else
-  add_summary "SMART" "No disks found."
+  for result in "${result_files[@]}"; do
+    [[ -f $result ]] && cat "$result" >>"$SUMMARY_FILE"
+  done
 fi
 
-pb_api="https://api.pushbullet.com"
-pb_hdr_auth=( -H "Authorization: Bearer ${pushbullet_token}" )
-pb_hdr_json=( -H "Content-Type: application/json" )
-
-json_escape() {
-  sed ':a;N;$!ba;s/\n/\\n/g;s/\\/\\\\/g;s/"/\\"/g'
+pushbullet_args() {
+  if [[ -n $pb_target_device_iden ]]; then
+    printf '%s\n' 'device_iden' "$pb_target_device_iden"
+  elif [[ -n $pb_target_email ]]; then
+    printf '%s\n' 'email' "$pb_target_email"
+  elif [[ -n $pb_channel_tag ]]; then
+    printf '%s\n' 'channel_tag' "$pb_channel_tag"
+  fi
 }
 
-pb_target_fields() {
-  local t=""
-  [[ -n "$pb_target_device_iden" ]] && t+="\"device_iden\":\"$pb_target_device_iden\","
-  [[ -n "$pb_target_email" ]] && t+="\"email\":\"$pb_target_email\","
-  [[ -n "$pb_channel_tag" ]] && t+="\"channel_tag\":\"$pb_channel_tag\","
-  printf "%s" "$t"
-}
-
-pb_send_json() {
-  curl -sS -D - -o /dev/null "${pb_hdr_auth[@]}" "${pb_hdr_json[@]}" \
-    -X POST "$pb_api/v2/pushes" --data-binary "$1"
+pb_post() {
+  local endpoint=$1
+  shift
+  curl --silent --show-error --fail-with-body --max-time 60 \
+    --retry 2 --retry-delay 2 \
+    --header "Access-Token: $pushbullet_token" \
+    --request POST "$PUSHBULLET_API/$endpoint" "$@"
 }
 
 pb_note() {
-  local title=$1 body=$2 extra target
-  target=$(pb_target_fields)
-  extra="{${target}\"type\":\"note\",\"title\":\"$(printf "%s" "$title" | json_escape)\",\"body\":\"$(printf "%s" "$body" | json_escape)\"}"
-  pb_send_json "$extra"
+  local title=$1 body=$2
+  local args=(--data-urlencode 'type=note' --data-urlencode "title=$title" --data-urlencode "body=$body")
+  local target=()
+  mapfile -t target < <(pushbullet_args)
+  if ((${#target[@]} == 2)); then
+    args+=(--data-urlencode "${target[0]}=${target[1]}")
+  fi
+  pb_post pushes "${args[@]}" >/dev/null
 }
 
 pb_link() {
-  local title=$1 body=$2 url=$3 target
-  target=$(pb_target_fields)
-  local payload="{${target}\"type\":\"link\",\"title\":\"$(printf "%s" "$title" | json_escape)\",\"body\":\"$(printf "%s" "$body" | json_escape)\",\"url\":\"$(printf "%s" "$url" | json_escape)\"}"
-  pb_send_json "$payload"
+  local args=(--data-urlencode 'type=link' --data-urlencode "title=Runbook - $HOST_NAME" --data-urlencode 'body=Open the configured reference link.' --data-urlencode "url=$pb_link_url")
+  local target=()
+  mapfile -t target < <(pushbullet_args)
+  if ((${#target[@]} == 2)); then
+    args+=(--data-urlencode "${target[0]}=${target[1]}")
+  fi
+  pb_post pushes "${args[@]}" >/dev/null
 }
 
-pb_file_experimental() {
-  local path=$1 fname mime; fname=$(basename "$path")
-  mime=${2:-application/octet-stream}
-  local req="{\"file_name\":\"$(printf "%s" "$fname" | json_escape)\",\"file_type\":\"$mime\"}"
+pb_upload_file() {
+  local path=$1 mime='text/plain' response upload_url file_url file_name
+  command -v jq >/dev/null 2>&1 || return 1
+  file_name=$(basename "$path")
 
-  local resp; resp=$(curl -sS "${pb_hdr_auth[@]}" "${pb_hdr_json[@]}" -X POST "$pb_api/v2/upload-request" --data-binary "$req")
-  local upload_url file_url
-  upload_url=$(printf '%s' "$resp" | sed -n 's/.*"upload_url":"\([^"]*\)".*/\1/p')
-  file_url=$(printf '%s' "$resp" | sed -n 's/.*"file_url":"\([^"]*\)".*/\1/p')
+  response=$(pb_post upload-request \
+    --data-urlencode "file_name=$file_name" \
+    --data-urlencode "file_type=$mime") || return 1
+  upload_url=$(jq -r '.upload_url // empty' <<<"$response")
+  file_url=$(jq -r '.file_url // empty' <<<"$response")
+  [[ -n $upload_url && -n $file_url ]] || return 1
 
-  if [[ -z "$upload_url" || -z "$file_url" ]]; then
-    add_summary "Pushbullet file" "Failed to parse upload-request; sending path in note instead."
-    return 1
+  local upload_args=()
+  while IFS= read -r entry; do
+    upload_args+=(--form-string "$entry")
+  done < <(jq -r '.data // {} | to_entries[] | "\(.key)=\(.value)"' <<<"$response")
+  upload_args+=(--form "file=@$path")
+
+  curl --silent --show-error --fail --max-time 300 \
+    --request POST "$upload_url" "${upload_args[@]}" >/dev/null || return 1
+
+  local args=(--data-urlencode 'type=file' --data-urlencode "file_name=$file_name" --data-urlencode "file_type=$mime" --data-urlencode "file_url=$file_url" --data-urlencode "body=Disk report from $HOST_NAME")
+  local target=()
+  mapfile -t target < <(pushbullet_args)
+  if ((${#target[@]} == 2)); then
+    args+=(--data-urlencode "${target[0]}=${target[1]}")
+  fi
+  pb_post pushes "${args[@]}" >/dev/null
+}
+
+send_summary() {
+  local message total offset part chunk
+  message=$(printf 'Disk maintenance summary for %s\n\n' "$HOST_NAME"; cat "$SUMMARY_FILE")
+
+  if [[ -z $pushbullet_token ]]; then
+    printf '%s\n' "$message"
+    return 0
   fi
 
-  local up
-  up=$(curl -sS -f -X POST "$upload_url" -F "file=@${path}" 2>&1) || {
-    add_summary "Pushbullet file" "Upload failed; sending path in note instead."
-    return 1
-  }
-
-  local target; target=$(pb_target_fields)
-  local payload="{${target}\"type\":\"file\",\"file_name\":\"$(printf "%s" "$fname" | json_escape)\",\"file_type\":\"$mime\",\"file_url\":\"$(printf "%s" "$file_url" | json_escape)\",\"body\":\"Uploaded log from $HOSTNAME\"}"
-  pb_send_json "$payload" >/dev/null
-  add_summary "Pushbullet file" "Sent $fname as file push (experimental)."
-}
-
-build_summary() {
-  local msg="Summary of operations on $HOSTNAME\n\n"
-  for key in "${summary_keys[@]}"; do
-    msg+=$(printf "%s:\n%s\n\n" "$key" "${summary[$key]}")
+  total=${#message}
+  offset=0
+  part=1
+  while (( offset < total )); do
+    chunk=${message:offset:pb_chunk_size}
+    pb_note "Disk maintenance $HOST_NAME, part $part" "$chunk" || {
+      printf 'Pushbullet summary delivery failed.\n' >&2
+      return 1
+    }
+    ((offset += pb_chunk_size))
+    ((part += 1))
   done
-  printf "%s" "$msg"
-}
 
-send_summary_pushes() {
-  local summary_message; summary_message=$(build_summary)
-
-  if [[ -z "$pushbullet_token" ]]; then
-    printf "%s\n" "$summary_message"
-    return
+  if [[ $pb_upload_logs == true ]]; then
+    while IFS= read -r path; do
+      [[ -f $path ]] || continue
+      pb_upload_file "$path" || printf 'Pushbullet file upload failed for %s.\n' "$path" >&2
+    done < <(find "$LOG_DIR" -maxdepth 1 -type f -name "smart-*-${RUN_STAMP}.log*" -print)
   fi
 
-  local total=${#summary_message} idx=0 part=1
-  while (( idx < total )); do
-    local chunk=${summary_message:idx:pb_chunk_size}
-    local title="Summary ($part) - $HOSTNAME"
-    local headers; headers=$(pb_note "$title" "$chunk")
-    idx=$(( idx + pb_chunk_size ))
-    (( part++ ))
-    if (( idx >= total )); then
-      local limit rem reset
-      limit=$(printf '%s' "$headers" | sed -n 's/^X-Ratelimit-Limit: *\([0-9]*\).*/\1/p' | tail -n1)
-      rem=$(printf '%s' "$headers" | sed -n 's/^X-Ratelimit-Remaining: *\([0-9]*\).*/\1/p' | tail -n1)
-      reset=$(printf '%s' "$headers" | sed -n 's/^X-Ratelimit-Reset: *\([0-9]*\).*/\1/p' | tail -n1)
-      [[ -n "$limit" && -n "$rem" ]] && add_summary "Pushbullet rate-limit" "Remaining: ${rem}/${limit} (reset epoch: ${reset:-unknown})"
-    fi
-  done
-
-  if [[ "$pb_send_link" == "true" && -n "$pb_link_url" ]]; then
-    pb_link "Runbook/Reference - $HOSTNAME" "See link for details" "$pb_link_url" >/dev/null
+  if [[ $pb_send_link == true && -n $pb_link_url ]]; then
+    pb_link || printf 'Pushbullet link delivery failed.\n' >&2
   fi
 }
 
-
-# Optionally send files via PB (experimental)
-send_collected_logs_as_files() {
-  [[ "$pb_experimental_file_push" == "true" ]] || return 0
-  for key in "${summary_keys[@]}"; do
-    if [[ "$key" == "Log file from HDD scans on $HOSTNAME" ]]; then
-      local path=${summary[$key]}
-      [[ -f "$path" ]] && pb_file_experimental "$path" "text/plain" || true
-    fi
-  done
-}
-
-send_collected_logs_as_files
-send_summary_pushes
-
-exit
+send_summary
