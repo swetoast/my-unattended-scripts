@@ -1,235 +1,385 @@
 #!/usr/bin/env bash
-# Rev 4
+# Revision 6
 
 set -Eeuo pipefail
+umask 077
+export LC_ALL=C
+export PATH='/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
 
-if [[ $(id -u) -ne 0 ]]; then exec sudo /bin/bash "$0" "$@"; fi
+CONFIG=${CONFIG:-/opt/etc/unattended_update.conf}
+PUSHBULLET_API='https://api.pushbullet.com/v2'
 
-CONFIG="/opt/etc/unattended_update.conf"
-if [[ -f "$CONFIG" ]]; then
-  . "$CONFIG"
-else
-  echo "No configuration file present at $CONFIG" >&2
+if (( EUID != 0 )); then
+  exec sudo --preserve-env=CONFIG -- "$0" "$@"
+fi
+
+if [[ ! -f $CONFIG ]]; then
+  printf 'No configuration file present at %s\n' "$CONFIG" >&2
   exit 0
 fi
 
-[[ "${set_debug:-disabled}" == "enabled" ]] && set -x
+config_owner=$(stat -c '%u' "$CONFIG")
+if [[ $config_owner != 0 ]] || [[ -n $(find "$CONFIG" -maxdepth 0 -perm /022 -print -quit) ]]; then
+  printf 'Unsafe ownership or permissions on %s. Require root ownership and no group/other write access.\n' "$CONFIG" >&2
+  exit 1
+fi
+
+# shellcheck source=/dev/null
+source "$CONFIG"
 
 : "${LOGS:=/var/log/avscan}"
 : "${INFECTED:=/var/quarantine}"
 : "${USERNAME:=root}"
 : "${RETENTION_DAYS:=14}"
+: "${SCAN_PATHS:=/}"
+: "${EXCLUDE_DIRS:=/proc /sys /dev /run /tmp /var/tmp}"
+: "${MAX_FILESIZE_M:=2048}"
+: "${MAX_SCANSIZE_M:=2048}"
+: "${MAX_RECURSION:=17}"
+: "${MAX_FILES:=10000}"
+: "${CROSS_FILESYSTEMS:=false}"
+: "${FOLLOW_SYMLINKS:=false}"
+: "${ALL_MATCHES:=false}"
+: "${ALERT_EXCEEDS_MAX:=false}"
+: "${MAX_SIGNATURE_AGE_DAYS:=7}"
+: "${pushbullet_token:=}"
+: "${pb_device_iden:=}"
+: "${pb_channel_tag:=}"
+: "${pb_email:=}"
+: "${PB_MODE:=critical_only}"
+: "${PB_BUDGET:=480}"
+: "${PB_STATE_DIR:=/var/lib/avscan}"
+: "${PB_MAX_UPLOAD_BYTES:=26214400}"
+: "${SCAN_TIMEOUT:=0}"
+: "${PREFER_CLAMD:=false}"
+: "${set_debug:=disabled}"
 
-# What to scan
-: "${SCAN_PATHS:=/}"                      # space-separated list, e.g. "/ /home /etc"
-: "${EXCLUDE_DIRS:=/proc /sys /dev /run /tmp}"
+[[ $set_debug == enabled ]] && set -x
 
-# ClamAV limits
-: "${MAX_FILESIZE_M:=4000}"
-: "${MAX_SCANSIZE_M:=4000}"
+for command in awk basename chmod chown curl date file find flock grep gzip head hostname id install ionice ls mktemp nice sed stat tail tar timeout touch tr; do
+  command -v "$command" >/dev/null 2>&1 || {
+    printf 'Missing required command: %s\n' "$command" >&2
+    exit 1
+  }
+done
 
-# Pushbullet auth/target (get token from Pushbullet Account Settings)
-: "${pushbullet_token:=}"                 # required to send pushes
-: "${pb_device_iden:=}"                   # optional
-: "${pb_channel_tag:=}"                   # optional
-: "${pb_email:=}"                         # optional
+command -v clamscan >/dev/null 2>&1 || command -v clamdscan >/dev/null 2>&1 || {
+  printf 'Neither clamscan nor clamdscan is installed.\n' >&2
+  exit 1
+}
 
-# Free-plan governance
-: "${PB_MODE:=critical_only}"             # critical_only | final_only
-: "${PB_BUDGET:=480}"                     # monthly push threshold (stay <500)
-: "${PB_STATE_DIR:=/var/lib/avscan}"      # state dir for counters
-: "${PB_MAX_UPLOAD_BYTES:=26214400}"      # ~25MB typical free-plan limit
+for value_name in RETENTION_DAYS MAX_FILESIZE_M MAX_SCANSIZE_M MAX_RECURSION MAX_FILES MAX_SIGNATURE_AGE_DAYS PB_BUDGET PB_MAX_UPLOAD_BYTES SCAN_TIMEOUT; do
+  value=${!value_name}
+  [[ $value =~ ^[0-9]+$ ]] || {
+    printf '%s must be a non-negative integer.\n' "$value_name" >&2
+    exit 1
+  }
+done
 
-# Optional: prefer clamd if available
-SCANNER="/usr/bin/clamscan"
-if command -v clamdscan >/dev/null; then
-  SCANNER="/usr/bin/clamdscan --fdpass"
+
+for bool_name in CROSS_FILESYSTEMS FOLLOW_SYMLINKS ALL_MATCHES ALERT_EXCEEDS_MAX PREFER_CLAMD; do
+  bool_value=${!bool_name}
+  [[ $bool_value == true || $bool_value == false ]] || {
+    printf '%s must be true or false.\n' "$bool_name" >&2
+    exit 1
+  }
+done
+
+(( MAX_FILESIZE_M <= 2048 && MAX_SCANSIZE_M <= 2048 )) || {
+  printf 'MAX_FILESIZE_M and MAX_SCANSIZE_M cannot exceed 2048 MB.\n' >&2
+  exit 1
+}
+
+case $PB_MODE in
+  critical_only|final_only) ;;
+  *) printf 'PB_MODE must be critical_only or final_only.\n' >&2; exit 1 ;;
+esac
+
+target_count=0
+[[ -n $pb_device_iden ]] && ((target_count += 1))
+[[ -n $pb_channel_tag ]] && ((target_count += 1))
+[[ -n $pb_email ]] && ((target_count += 1))
+(( target_count <= 1 )) || {
+  printf 'Set at most one Pushbullet target.\n' >&2
+  exit 1
+}
+
+install -d -m 0750 -o root -g root -- "$LOGS" "$INFECTED" "$PB_STATE_DIR"
+if ! id "$USERNAME" >/dev/null 2>&1; then
+  printf 'Configured user does not exist: %s\n' "$USERNAME" >&2
+  exit 1
+fi
+chown "$USERNAME:$USERNAME" "$LOGS"
+
+exec 9>"$PB_STATE_DIR/avscan.lock"
+if ! flock -n 9; then
+  printf 'Another antivirus scan is already active.\n'
+  exit 0
 fi
 
-_ts() { date +"%Y-%m-%d %H:%M:%S%z"; }
+WORK_DIR=$(mktemp -d /tmp/avscan.XXXXXX)
+cleanup() { rm -rf -- "$WORK_DIR"; }
+trap cleanup EXIT HUP INT TERM
 
-json_escape() {
-  sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/\t/\\t/g' -e $'s/\r/\\r/g' -e $'s/\n/\\n/g'
-}
-
-ensure_dirs() {
-  install -d -m 0750 -o root -g root -- "$LOGS" "$INFECTED" "$PB_STATE_DIR"
-  chown "$USERNAME":"$USERNAME" "$LOGS" || true
-}
-
-expire_old_logs() {
-  find "$LOGS" -type f -name 'avscan*.log*' -mtime "+${RETENTION_DAYS}" -delete 2>/dev/null || true
-}
-
-compress_if_large() {
-  local log_file="$1" size
-  [[ ! -f "$log_file" ]] && { echo "$log_file"; return; }
-  size=$(stat -c%s -- "$log_file" 2>/dev/null || echo 0)
-  if (( size > PB_MAX_UPLOAD_BYTES )); then
-    local tgz="${log_file%.*}.tar.gz"
-    tar -C "$(dirname -- "$log_file")" -czf "$tgz" "$(basename -- "$log_file")"
-    # If still > max, keep tgz but we'll fall back to note
-    echo "$tgz"
-  else
-    echo "$log_file"
-  fi
-}
-
-build_excludes() {
-  local args=()
-  for d in $EXCLUDE_DIRS; do args+=( "--exclude-dir=$d" ); done
-  printf '%s\n' "${args[@]}"
-} 
-
-month_key="$(date +'%Y%m')"
-PB_COUNT_FILE="${PB_STATE_DIR}/pb_pushcount.${month_key}"
+HOST_NAME=${HOSTNAME:-$(hostname)}
+month_key=$(date +'%Y%m')
+PB_COUNT_FILE="$PB_STATE_DIR/pb_pushcount.$month_key"
 touch "$PB_COUNT_FILE"
 chmod 0640 "$PB_COUNT_FILE"
 
-get_pb_count() { <"$PB_COUNT_FILE" tr -dc '0-9' || true; }
-inc_pb_count() { local c; c=$(get_pb_count); c=$(( (c>0?c:0) + 1 )); echo "$c" >"$PB_COUNT_FILE"; }
+_ts() { date '+%Y-%m-%d %H:%M:%S%z'; }
 
-should_push_clean() { [[ "${PB_MODE}" == "final_only" ]]; }
-budget_allows()     { local c; c=$(get_pb_count); (( c < PB_BUDGET )); }
+get_pb_count() {
+  local count
+  count=$(tr -dc '0-9' <"$PB_COUNT_FILE")
+  printf '%s\n' "${count:-0}"
+}
+
+inc_pb_count() {
+  local count
+  count=$(get_pb_count)
+  printf '%s\n' "$((count + 1))" >"$PB_COUNT_FILE"
+}
+
+budget_allows() {
+  local count
+  count=$(get_pb_count)
+  (( count < PB_BUDGET ))
+}
+
+push_target_args() {
+  if [[ -n $pb_device_iden ]]; then
+    printf '%s\n' 'device_iden' "$pb_device_iden"
+  elif [[ -n $pb_channel_tag ]]; then
+    printf '%s\n' 'channel_tag' "$pb_channel_tag"
+  elif [[ -n $pb_email ]]; then
+    printf '%s\n' 'email' "$pb_email"
+  fi
+}
+
+pb_post() {
+  local endpoint=$1
+  shift
+  curl --silent --show-error --fail-with-body --max-time 60 \
+    --retry 2 --retry-delay 2 \
+    --header "Access-Token: $pushbullet_token" \
+    --request POST "$PUSHBULLET_API/$endpoint" "$@"
+}
 
 notify_note() {
-  local title="$1" body="$2" target=""
-  [[ -z "${pushbullet_token}" ]] && return 0
-  [[ -n "${pb_device_iden}" ]] && target=",\"device_iden\":\"${pb_device_iden}\""
-  [[ -n "${pb_channel_tag}" ]] && target=",\"channel_tag\":\"${pb_channel_tag}\""
-  [[ -n "${pb_email}"       ]] && target=",\"email\":\"${pb_email}\""
+  local title=$1 body=$2
+  local target=()
+  local args=(--data-urlencode 'type=note' --data-urlencode "title=$title" --data-urlencode "body=$body")
 
-  local esc_title esc_body
-  esc_title=$(printf '%s' "$title" | json_escape)
-  esc_body=$(printf  '%s' "$body"  | json_escape)
-
-  # Note push (counts 1)
-  curl -sS -X POST "https://api.pushbullet.com/v2/pushes" \
-       -H "Access-Token: ${pushbullet_token}" \
-       -H "Content-Type: application/json" \
-       -d "{\"type\":\"note\",\"title\":\"${esc_title}\",\"body\":\"${esc_body}\"${target}}" \
-       >/dev/null || true
+  [[ -n $pushbullet_token ]] || return 0
+  budget_allows || return 2
+  mapfile -t target < <(push_target_args)
+  if ((${#target[@]} == 2)); then
+    args+=(--data-urlencode "${target[0]}=${target[1]}")
+  fi
+  pb_post pushes "${args[@]}" >/dev/null || return 1
   inc_pb_count
 }
 
 push_file() {
-  # Proper Pushbullet file upload (upload-request → upload → push type=file)
-  # Arg: path to file
-  local file_path="$1"
-  [[ -z "${pushbullet_token}" ]] && return 0
-  [[ ! -f "$file_path" ]] && return 1
+  local file_path=$1
+  local file_name file_type size response upload_url file_url
+  local upload_args=() target=() push_args=()
 
-  local file_name file_type upload_meta upload_url file_url esc_name title target=""
-  file_name="$(basename -- "$file_path")"
-  file_type="$(file --mime-type -b -- "$file_path" || echo application/octet-stream)"
+  [[ -n $pushbullet_token ]] || return 1
+  [[ -f $file_path ]] || return 1
+  budget_allows || return 2
+  command -v jq >/dev/null 2>&1 || return 4
 
-  # Guard: skip if oversize
-  local size; size=$(stat -c%s -- "$file_path" 2>/dev/null || echo 0)
-  if (( size > PB_MAX_UPLOAD_BYTES )); then
-    return 3
+  size=$(stat -c '%s' "$file_path")
+  (( size <= PB_MAX_UPLOAD_BYTES )) || return 3
+  file_name=$(basename "$file_path")
+  file_type=$(file --mime-type -b "$file_path" 2>/dev/null || printf 'application/octet-stream')
+
+  response=$(pb_post upload-request \
+    --data-urlencode "file_name=$file_name" \
+    --data-urlencode "file_type=$file_type") || return 1
+  upload_url=$(jq -r '.upload_url // empty' <<<"$response")
+  file_url=$(jq -r '.file_url // empty' <<<"$response")
+  [[ -n $upload_url && -n $file_url ]] || return 1
+
+  while IFS= read -r entry; do
+    upload_args+=(--form-string "$entry")
+  done < <(jq -r '.data // {} | to_entries[] | "\(.key)=\(.value)"' <<<"$response")
+  upload_args+=(--form "file=@$file_path")
+  curl --silent --show-error --fail --max-time 300 \
+    --request POST "$upload_url" "${upload_args[@]}" >/dev/null || return 1
+
+  push_args=(
+    --data-urlencode 'type=file'
+    --data-urlencode "title=Antivirus scan artifact from $HOST_NAME"
+    --data-urlencode 'body=See attached scan log.'
+    --data-urlencode "file_name=$file_name"
+    --data-urlencode "file_type=$file_type"
+    --data-urlencode "file_url=$file_url"
+  )
+  mapfile -t target < <(push_target_args)
+  if ((${#target[@]} == 2)); then
+    push_args+=(--data-urlencode "${target[0]}=${target[1]}")
   fi
-
-  # 1) request upload
-  upload_meta="$(curl -sS -X POST https://api.pushbullet.com/v2/upload-request \
-                     -H "Access-Token: ${pushbullet_token}" \
-                     -H "Content-Type: application/json" \
-                     -d "{\"file_name\":\"${file_name}\",\"file_type\":\"${file_type}\"}")"
-
-  # Parse JSON without jq; fallback if not GNU grep
-  upload_url="$(printf '%s' "$upload_meta" | grep -oP '"upload_url"\s*:\s*"\K[^"]+' || true)"
-  file_url="$(printf   '%s' "$upload_meta" | grep -oP '"file_url"\s*:\s*"\K[^"]+'   || true)"
-  if [[ -z "$upload_url" || -z "$file_url" ]]; then
-    if command -v jq >/dev/null; then
-      upload_url="$(jq -r '.upload_url // empty' <<<"$upload_meta")"
-      file_url="$(jq -r '.file_url   // empty' <<<"$upload_meta")"
-    fi
-  fi
-  [[ -z "$upload_url" || -z "$file_url" ]] && return 2
-
-  # 2) upload the file (multipart)
-  curl -sS -i -X POST "$upload_url" -F "file=@${file_path}" >/dev/null
-
-  # 3) send the push pointing at file_url (counts 1)
-  esc_name=$(printf '%s' "$file_name" | json_escape)
-  title="AV scan artifact from ${HOSTNAME} at $(_ts)"
-  [[ -n "${pb_device_iden}" ]] && target=",\"device_iden\":\"${pb_device_iden}\""
-  [[ -n "${pb_channel_tag}" ]] && target=",\"channel_tag\":\"${pb_channel_tag}\""
-  [[ -n "${pb_email}"       ]] && target=",\"email\":\"${pb_email}\""
-
-  curl -sS -X POST "https://api.pushbullet.com/v2/pushes" \
-       -H "Access-Token: ${pushbullet_token}" \
-       -H "Content-Type: application/json" \
-       -d "{\"type\":\"file\",\"title\":\"${title}\",\"body\":\"See attached scan log\",\"file_name\":\"${esc_name}\",\"file_type\":\"${file_type}\",\"file_url\":\"${file_url}\"${target}}" \
-       >/dev/null || true
+  pb_post pushes "${push_args[@]}" >/dev/null || return 1
   inc_pb_count
 }
 
+expire_old_logs() {
+  find "$LOGS" -type f \( -name 'avscan-*.log' -o -name 'avscan-*.log.gz' \) \
+    -mtime "+$RETENTION_DAYS" -delete
+}
+
+prepare_attachment() {
+  local log_file=$1 size compressed
+  size=$(stat -c '%s' "$log_file")
+  if (( size <= PB_MAX_UPLOAD_BYTES )); then
+    printf '%s\n' "$log_file"
+    return 0
+  fi
+
+  compressed="${log_file}.gz"
+  gzip -c -- "$log_file" >"$compressed"
+  printf '%s\n' "$compressed"
+}
+
+regex_escape() {
+  printf '%s' "$1" | sed 's/[][(){}.^$*+?|\\]/\\&/g'
+}
+
+build_excludes() {
+  local directory escaped
+  local -a directories=()
+  read -r -a directories <<<"$EXCLUDE_DIRS"
+  directories+=("$LOGS" "$INFECTED" "$PB_STATE_DIR")
+  for directory in "${directories[@]}"; do
+    [[ $directory == /* ]] || {
+      printf 'Excluded directory must be absolute: %s\n' "$directory" >&2
+      return 1
+    }
+    escaped=$(regex_escape "${directory%/}")
+    printf '%s\n' "--exclude-dir=^${escaped}(/|$)"
+  done
+}
+
+select_scanner() {
+  if [[ $PREFER_CLAMD == true ]] && command -v clamdscan >/dev/null 2>&1 && clamdscan --ping 1:1 >/dev/null 2>&1; then
+    printf '%s\n' clamdscan
+  elif command -v clamscan >/dev/null 2>&1; then
+    printf '%s\n' clamscan
+  elif command -v clamdscan >/dev/null 2>&1 && clamdscan --ping 1:1 >/dev/null 2>&1; then
+    printf '%s\n' clamdscan
+  else
+    return 1
+  fi
+}
+
+clamscan_supports() {
+  local option=$1
+  clamscan --help 2>&1 | grep -q -- "$option"
+}
+
 scan_system() {
-  local tstamp log_file exclude_args summary infected clean to_send
-  tstamp="$(date +'%Y%m%d-%H%M%S')"
-  log_file="${LOGS}/avscan-${tstamp}.log"
+  local scanner timestamp log_file attachment summary infected rc=0
+  local -a scan_paths=() excludes=() command_args=()
 
-  # shellcheck disable=SC2207
-  exclude_args=($(build_excludes))
+  scanner=$(select_scanner) || {
+    printf 'clamdscan is installed but clamd is unavailable, and clamscan is not installed.\n' >&2
+    return 2
+  }
+  read -r -a scan_paths <<<"$SCAN_PATHS"
+  ((${#scan_paths[@]} > 0)) || {
+    printf 'SCAN_PATHS is empty.\n' >&2
+    return 2
+  }
+  for path in "${scan_paths[@]}"; do
+    [[ $path == /* && -e $path ]] || {
+      printf 'Invalid or missing scan path: %s\n' "$path" >&2
+      return 2
+    }
+  done
+  mapfile -t excludes < <(build_excludes)
 
-  # Kindly lower priority
-  nice -n 10 ionice -c2 -n7 \
-    $SCANNER \
-      --recursive \
-      --allmatch \
-      --infected \
-      --move="${INFECTED}" \
-      --log="${log_file}" \
-      --max-filesize="${MAX_FILESIZE_M}M" \
-      --max-scansize="${MAX_SCANSIZE_M}M" \
-      --bytecode=yes \
-      "${exclude_args[@]}" \
-      ${SCAN_PATHS}
+  timestamp=$(date +'%Y%m%d-%H%M%S')
+  log_file="$LOGS/avscan-$timestamp.log"
 
-  chown "$USERNAME":"$USERNAME" "$log_file" || true
-
-  summary=$(grep -E '^(Scanned files|Infected files|Data scanned|Time:)' "$log_file" || true)
-  infected=$(grep -E '^Infected files:\s*[0-9]+' "$log_file" | awk '{print $3}' || echo "0")
-  clean="No"; [[ "$infected" == "0" ]] && clean="Yes"
-
-  to_send=$(compress_if_large "$log_file")
-
-  if [[ -n "${pushbullet_token}" ]] && budget_allows; then
-    if [[ "$infected" != "0" ]]; then
-      # Infected: prefer file push, else note
-      if [[ -f "$to_send" ]] && (( $(stat -c%s -- "$to_send") <= PB_MAX_UPLOAD_BYTES )); then
-        push_file "$to_send" || notify_note "Antivirus scan (INFECTED)" \
-          "Host: ${HOSTNAME}\nWhen: $(_ts)\n${summary}\nLog: ${to_send}"
-      else
-        notify_note "Antivirus scan (INFECTED)" \
-          "Host: ${HOSTNAME}\nWhen: $(_ts)\n${summary}\nLog too large for free plan: ${to_send}"
-      fi
-    else
-      if should_push_clean; then
-        notify_note "Antivirus scan (clean)" \
-          "Host: ${HOSTNAME}\nWhen: $(_ts)\n${summary}\nLog: ${to_send}"
-      fi
+  if [[ $scanner == clamdscan ]]; then
+    command_args=(clamdscan --fdpass --multiscan --infected --move="$INFECTED" --log="$log_file")
+    [[ $ALL_MATCHES == true ]] && command_args+=(--allmatch)
+    # clamdscan engine limits and path exclusions are controlled by clamd.conf.
+    command_args+=("${scan_paths[@]}")
+  else
+    command_args=(
+      clamscan
+      --recursive
+      --infected
+      --move="$INFECTED"
+      --log="$log_file"
+      --max-filesize="${MAX_FILESIZE_M}M"
+      --max-scansize="${MAX_SCANSIZE_M}M"
+      --max-recursion="$MAX_RECURSION"
+      --max-files="$MAX_FILES"
+      --bytecode=yes
+      --cross-fs=$([[ $CROSS_FILESYSTEMS == true ]] && printf yes || printf no)
+      --follow-dir-symlinks=$([[ $FOLLOW_SYMLINKS == true ]] && printf 2 || printf 0)
+      --follow-file-symlinks=$([[ $FOLLOW_SYMLINKS == true ]] && printf 2 || printf 0)
+    )
+    [[ $ALL_MATCHES == true ]] && command_args+=(--allmatch)
+    if [[ $ALERT_EXCEEDS_MAX == true ]] && clamscan_supports --alert-exceeds-max; then
+      command_args+=(--alert-exceeds-max)
     fi
+    if (( MAX_SIGNATURE_AGE_DAYS > 0 )) && clamscan_supports --fail-if-cvd-older-than; then
+      command_args+=(--fail-if-cvd-older-than="$MAX_SIGNATURE_AGE_DAYS")
+    fi
+    command_args+=("${excludes[@]}" "${scan_paths[@]}")
   fi
+
+  if (( SCAN_TIMEOUT > 0 )); then
+    timeout --signal=TERM --kill-after=60s "${SCAN_TIMEOUT}s" \
+      nice -n 10 ionice -c2 -n7 "${command_args[@]}" || rc=$?
+  else
+    nice -n 10 ionice -c2 -n7 "${command_args[@]}" || rc=$?
+  fi
+
+  [[ -f $log_file ]] || : >"$log_file"
+  chown "$USERNAME:$USERNAME" "$log_file" || true
+  summary=$(grep -E '^(Known viruses|Engine version|Scanned directories|Scanned files|Infected files|Total errors|Data scanned|Time:)' "$log_file" || true)
+  infected=$(awk '/^Infected files:/ {print $3}' "$log_file" | tail -n1)
+  infected=${infected:-0}
+  attachment=$(prepare_attachment "$log_file")
+
+  case $rc in
+    0)
+      if [[ $PB_MODE == final_only ]]; then
+        notify_note 'Antivirus scan clean' "Host: $HOST_NAME
+When: $(_ts)
+${summary:-No summary was written.}
+Log: $attachment" || true
+      fi
+      ;;
+    1)
+      if ! push_file "$attachment"; then
+        notify_note 'Antivirus scan infected' "Host: $HOST_NAME
+When: $(_ts)
+Infected files: $infected
+${summary:-No summary was written.}
+Quarantine: $INFECTED
+Log: $attachment" || true
+      fi
+      ;;
+    *)
+      if ! push_file "$attachment"; then
+        notify_note 'Antivirus scan failed' "Host: $HOST_NAME
+When: $(_ts)
+Exit status: $rc
+${summary:-No summary was written.}
+Log: $attachment" || true
+      fi
+      return "$rc"
+      ;;
+  esac
 }
 
-on_error() {
-  local ec=$?
-  local tail_log
-  tail_log="$(ls -1t "$LOGS"/avscan*.log 2>/dev/null | head -1 || true)"
-  if [[ -n "${pushbullet_token}" ]] && budget_allows; then
-    # Prefer file push if small; else note — only one push
-    if [[ -n "$tail_log" && -f "$tail_log" ]] && (( $(stat -c%s -- "$tail_log") <= PB_MAX_UPLOAD_BYTES )); then
-      push_file "$tail_log" || notify_note "Antivirus scan FAILED" \
-        "Host: ${HOSTNAME}\nWhen: $(_ts)\nExit code: ${ec}\nLog: ${tail_log}"
-    else
-      notify_note "Antivirus scan FAILED" \
-        "Host: ${HOSTNAME}\nWhen: $(_ts)\nExit code: ${ec}\nLast log: ${tail_log:-N/A}"
-    fi
-  fi
-  exit "$ec"
-}
-trap on_error ERR
-
-ensure_dirs
-expireexpire_old_logs
+expire_old_logs
+scan_system
